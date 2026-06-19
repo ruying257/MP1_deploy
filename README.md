@@ -1,94 +1,105 @@
-# MP1 Jetson Real-Robot Deployment
+# MP1 Jetson 真机部署项目
 
-## Conclusion
+[English](README.md)
 
-This repository demonstrates a real-robot deployment pipeline for an MP1 manipulation policy on Jetson. It connects multimodal observation processing, TorchScript/LibTorch inference, Python-to-C++ parity checks, RealSense input capture, UR12e control, safety filtering, and ONNX/TensorRT validation tools.
+## 结论
 
-The project goal is practical deployment: make a learned policy run through a staged, testable path before any robot command is allowed.
+本仓库展示了一个面向 Jetson 的 MP1 机器人策略真机部署流程。项目将多模态观测处理、TorchScript/LibTorch 推理、Python 与 C++ 数值对齐、RealSense 输入采集、UR12e 控制、安全限幅以及 ONNX/TensorRT 验证工具串成了一条可测试的部署链路。
 
-## Highlights
+这个项目的重点不是展示单个模型文件，而是展示如何把学习到的机器人策略可靠地放进真实硬件闭环中：先离线验证，再 dry-run，再接入真实输入，最后才允许受保护的真机执行。
 
-- Deploys a learned multimodal manipulation policy with C++/LibTorch on Jetson.
-- Uses RealSense RGB-D cameras and UR RTDE state/control interfaces.
-- Provides staged validation from offline parity to real-input dry-run to guarded robot execution.
-- Includes safety checks for action limits, workspace boundaries, execution confirmation, and speed control.
-- Provides ONNX/TensorRT export and parity tooling for acceleration experiments.
+## 项目亮点
 
-## System Architecture
+- 基于 C++/LibTorch 在 Jetson 上部署学习到的多模态机器人操作策略。
+- 接入 RealSense RGB-D 相机和 UR RTDE 机器人状态/控制接口。
+- 设计分阶段验证流程：离线对齐、固定输入 dry-run、真实输入 dry-run、受保护真机执行。
+- 加入动作限幅、workspace 边界检查、显式执行确认和速度控制等安全机制。
+- 提供 ONNX/TensorRT 导出与误差验证工具，用于后续加速实验。
+
+## 系统架构
 
 ```mermaid
 flowchart LR
-    A["RealSense RGB-D"] --> B["Observation Builder"]
-    C["UR12e State"] --> B
-    B --> D["TorchScript Policy"]
-    D --> E["Safety Filter"]
-    E --> F["UR RTDE speedL Control"]
-    D --> G["ONNX / TensorRT Validation"]
+    A["RealSense RGB-D"] --> B["观测构建"]
+    C["UR12e 状态"] --> B
+    B --> D["TorchScript 策略"]
+    D --> E["安全过滤器"]
+    E --> F["UR RTDE speedL 控制"]
+    D --> G["ONNX / TensorRT 验证"]
 ```
 
-## Deployment Flow
+## 部署流程
 
 ```text
-Offline parity check
--> Fixed-input dry-run
--> Real-input capture
--> Real-input dry-run
--> Guarded real-robot execution
--> Realtime single-process loop
--> ONNX/TensorRT validation
+离线数值对齐
+-> 固定输入 dry-run
+-> 真实输入采集
+-> 真实输入 dry-run
+-> 受保护真机执行
+-> 单进程实时闭环
+-> ONNX/TensorRT 验证
 ```
 
-Each stage is designed to verify one layer of the system before moving to the next one. Shape checks alone are not enough: image channel order, rotation representation, point-cloud frame, and action post-processing must all match the policy's training-time assumptions.
+每一步只验证一个层次的问题。shape 正确并不等于语义正确，图像通道顺序、旋转表示、点云坐标系和动作后处理都必须与训练时假设保持一致。
 
-## Repository Layout
+## 目录结构
 
 ```text
 .
-├── cpp_deploy/                  # C++/Jetson deployment code
-│   ├── include/mp1_deploy/       # Runtime and safety interfaces
-│   ├── src/                      # Offline inference, dry-run, robot control
-│   ├── tests/                    # Safety-filter tests
-│   └── configs/                  # Example robot/camera configuration
-├── python_deploy/                # Python policy and real-robot utilities
-├── tools/                        # Export, parity, and TensorRT helper scripts
-├── README.md                     # Project overview
-└── requirements.txt              # Python deployment dependencies
+├── cpp_deploy/                  # C++/Jetson 部署代码
+│   ├── include/mp1_deploy/       # 推理、安全和硬件接口
+│   ├── src/                      # 离线推理、dry-run、真机控制
+│   ├── tests/                    # 安全过滤器测试
+│   └── configs/                  # 机器人/相机示例配置
+├── python_deploy/                # Python 策略和真机工具
+├── tools/                        # 导出、对齐和 TensorRT 辅助脚本
+├── README.md                     # 英文项目说明
+├── README_zh.md                  # 中文项目说明
+└── requirements.txt              # Python 部署依赖
 ```
 
-## Key Components
+## 核心组件
 
-| Component | Purpose |
+| 组件 | 作用 |
 | --- | --- |
-| `mp1_offline_infer` | Runs TorchScript inference on frozen sample tensors and compares against Python outputs. |
-| `mp1_dry_run` | Repeats inference on fixed inputs without sending robot commands. |
-| `capture_real_inputs.py` | Captures RealSense and RTDE observations into model-ready tensors. |
-| `mp1_real_input_dry_run` | Runs inference on captured real inputs and prints filtered actions only. |
-| `mp1_real_robot_control` | Executes guarded, low-amplitude robot control after explicit confirmation. |
-| `mp1_realtime_robot_control` | Runs capture, ring buffer, inference, safety filtering, and control in one C++ process. |
-| `test_safety_filter` | Verifies translation/rotation limits and action filtering behavior. |
-| `tools/check_onnx_parity.py` | Compares PyTorch, ONNX Runtime, and exported TorchScript behavior. |
-| `tools/check_trt_case_parity.py` | Validates frozen TensorRT cases without loading the full training stack. |
+| `mp1_offline_infer` | 加载 TorchScript 模型，用冻结样本和 Python 输出做离线对齐。 |
+| `mp1_dry_run` | 使用固定输入重复推理，不发送机器人控制命令。 |
+| `capture_real_inputs.py` | 将 RealSense 和 RTDE 观测采集成模型可消费的张量。 |
+| `mp1_real_input_dry_run` | 读取真实输入并打印过滤后的动作，不控制机器人。 |
+| `mp1_real_robot_control` | 在显式确认后执行低幅度、受保护的真机控制。 |
+| `mp1_realtime_robot_control` | 在单个 C++ 进程中完成采集、ring buffer、推理、安全过滤和控制。 |
+| `test_safety_filter` | 验证平移/旋转限幅和动作过滤逻辑。 |
+| `tools/check_onnx_parity.py` | 对比 PyTorch、ONNX Runtime 和 TorchScript 导出结果。 |
+| `tools/check_trt_case_parity.py` | 在不加载完整训练栈的情况下验证冻结的 TensorRT case。 |
 
-## Safety Design
+## 我的贡献
 
-The real-robot path is intentionally conservative:
+- 搭建 C++/LibTorch 推理链路，将学习到的机器人策略部署到 Jetson。
+- 设计从离线对齐到真实输入 dry-run 的分阶段验证流程。
+- 实现安全过滤和显式执行确认，降低真机闭环调试风险。
+- 整理 ONNX/TensorRT 导出与误差验证工具，为边缘端加速提供证据。
+- 将配置、依赖和文档整理为更适合公开展示的 GitHub 仓库结构。
 
-- Robot execution is disabled by default.
-- Real execution requires both `--execute 1` and `--confirm RUN_ROBOT`.
-- Dry-run programs only print actions and never send robot commands.
-- The safety filter limits translation and rotation per step.
-- Workspace violations skip commands instead of forcing targets back into range.
-- UR speed control parameters are read from the deployment config.
+## 安全设计
 
-## Quick Start
+真机部署路径默认保守：
 
-Install the Python deployment dependencies:
+- 默认不发送机器人命令。
+- 真机执行必须同时传入 `--execute 1` 和 `--confirm RUN_ROBOT`。
+- dry-run 程序只打印动作，不控制机器人。
+- 安全过滤器限制单步平移和旋转幅度。
+- workspace 超界时跳过命令，而不是强行把目标夹回边界。
+- UR 速度控制参数从部署配置中读取。
+
+## 快速开始
+
+安装 Python 部署依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Build the C++ deployment targets on Jetson or a compatible Ubuntu environment with LibTorch:
+在 Jetson 或兼容的 Ubuntu + LibTorch 环境中构建 C++ 部署目标：
 
 ```bash
 cmake -S cpp_deploy -B build \
@@ -99,7 +110,7 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Run an offline parity check:
+运行离线对齐检查：
 
 ```bash
 ./build/mp1_offline_infer \
@@ -108,7 +119,7 @@ Run an offline parity check:
   --device cpu
 ```
 
-Run a guarded dry-run before any robot execution:
+在任何真机执行前，先运行受保护 dry-run：
 
 ```bash
 ./build/mp1_dry_run \
@@ -119,9 +130,9 @@ Run a guarded dry-run before any robot execution:
   --warmup-steps 3
 ```
 
-## Configuration
+## 配置说明
 
-Hardware-specific values are represented with placeholders in the public config files:
+公开配置文件中的硬件相关字段使用占位符：
 
 ```json
 {
@@ -139,25 +150,35 @@ Hardware-specific values are represented with placeholders in the public config 
 }
 ```
 
-Create a private local config before running on real hardware. Do not commit local IP addresses, camera serial numbers, checkpoints, exported models, raw robot data, or deployment logs.
+真实硬件运行前，请在本地创建私有配置文件。不要提交本地 IP、相机序列号、checkpoint、导出模型、原始机器人数据或部署日志。
 
-## Validation Evidence
+## 验证证据
 
-The deployment workflow tracks these evidence points:
+该部署流程关注以下证据：
 
-- Python vs C++ TorchScript output parity.
-- Fixed-input dry-run stability.
-- Real-input tensor shape, dtype, and timing.
-- Filtered action direction and magnitude.
-- Workspace and speed-control safety behavior.
-- PyTorch vs ONNX Runtime vs TensorRT numerical differences.
+- Python 与 C++ TorchScript 输出对齐。
+- 固定输入 dry-run 稳定性。
+- 真实输入张量的 shape、dtype 和时序。
+- 过滤后动作的方向和幅度。
+- workspace 与速度控制安全行为。
+- PyTorch、ONNX Runtime 和 TensorRT 的数值误差。
 
-One recorded CPU parity check reached:
+一次已记录的 CPU 离线对齐结果为：
 
 ```text
 expected max_abs_diff: 3.57628e-07
 ```
 
-## Notes
+## 已知限制
 
-Large artifacts such as checkpoints, TorchScript exports, ONNX models, TensorRT engines, raw datasets, and deployment logs are intentionally ignored by Git. Publish them through releases or external artifact storage when needed.
+- TensorRT 当前主要作为离线加速验证路径。
+- 真机运行依赖本地 UR12e、RealSense 和 Jetson 环境。
+- checkpoint、TorchScript、ONNX、TensorRT engine、原始数据和部署日志不会进入 Git，需要通过 release 或外部 artifact 存储单独分发。
+
+## 求职视角
+
+这个项目适合展示三类能力：
+
+- 机器人系统工程：真实硬件输入、推理、控制和安全边界。
+- 部署工程：Python 训练侧到 C++/Jetson 推理侧的行为对齐。
+- 工程可靠性：分阶段验证、显式确认、可复现配置和可审计文档。
