@@ -1,10 +1,11 @@
 # MP1 Jetson 真机部署项目
 
-[English](README.md)
+![实验场景](./asserts/实验场景.png)
+![抓取等电位杆任务](./asserts/取杆特写视频.gif)
 
 ## 结论
 
-本仓库展示了一个面向 Jetson 的 MP1 机器人策略真机部署流程。项目将多模态观测处理、TorchScript/LibTorch 推理、Python 与 C++ 数值对齐、RealSense 输入采集、UR12e 控制、安全限幅以及 ONNX/TensorRT 验证工具串成了一条可测试的部署链路。
+本项目面向 Jetson 的 MP1 机器人策略真机部署流程。项目将多模态观测处理、TorchScript/LibTorch 推理、Python 与 C++ 数值对齐、RealSense 输入采集、UR12e 控制、安全限幅以及 ONNX/TensorRT 验证工具串成了一条可测试的部署链路。
 
 这个项目的重点不是展示单个模型文件，而是展示如何把学习到的机器人策略可靠地放进真实硬件闭环中：先离线验证，再 dry-run，再接入真实输入，最后才允许受保护的真机执行。
 
