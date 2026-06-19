@@ -1,0 +1,123 @@
+﻿{
+  "representation": {
+    "obs_mode": "tcp_xyz_rot6d",
+    "action_mode": "delta_tcp_pose_gripper"
+  },
+  "robot": {
+    "ip": "ROBOT_IP_PLACEHOLDER",
+    "tcp_offset": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "payload_kg": 0.8,
+    "payload_cog": [0.0, 0.0, 0.08],
+    "home_joint_rad": [-3.837979, -3.341258, 1.821949, 0.0, 1.57, 3.642851],
+    "home_tcp_pose": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "movej_speed": 0.4,
+    "movej_acceleration": 0.6,
+    "rotation_delta_frame": "base",
+    "workspace_min": [0.30, -0.18, 0.03],
+    "workspace_max": [0.60, 0.18, 0.32],
+    "default_gripper_fraction": 1.0,
+    "gripper": {
+      "enabled": true,
+      "type": "twopin_gpio_remote",
+      "host": "GRIPPER_PROXY_HOST_PLACEHOLDER",
+      "port": 8765,
+      "connect_timeout_s": 2.0,
+      "request_timeout_s": 5.0,
+      "sync_interval_s": 0.5,
+      "apply_default_on_connect": true,
+      "stop_on_disconnect": false
+    }
+  },
+  "kinematics": {
+    "finger_tip_center_in_tcp_m": [0.0, 0.0, 0.12],
+    "finger_open_axis_in_tcp": [0.0, 1.0, 0.0],
+    "max_gripper_width_m": 0.085
+  },
+  "point_cloud": {
+    "aggregation": "primary_camera",
+    "num_points": 512,
+    "sampling": "fps",
+    "pre_random_sample": 4096,
+    "crop_min": [0.28, -0.20, 0.00],
+    "crop_max": [0.62, 0.20, 0.35]
+  },
+  "speed_control": {
+    "control_hz": 100.0,
+    "key_hold_timeout_s": 0.12,
+    "cartesian_acceleration": 0.4,
+    "joint_acceleration": 1.0,
+    "max_linear_speed_mps": 0.5,
+    "max_angular_speed_rps": 0.6,
+    "max_joint_speed_rps": 0.5
+  },
+  "speed_teleop": {
+    "linear_speed_mps": 0.015,
+    "linear_speed_scale": 1.25,
+    "min_linear_speed_mps": 0.002,
+    "max_linear_speed_mps": 0.5,
+    "angular_speed_rps": 0.15,
+    "angular_speed_scale": 1.25,
+    "min_angular_speed_rps": 0.05,
+    "max_angular_speed_rps": 0.6,
+    "joint_speed_rps": 0.12,
+    "joint_speed_scale": 1.25,
+    "min_joint_speed_rps": 0.03,
+    "max_joint_speed_rps": 0.5,
+    "gripper_step": 1.0
+  },
+  "collection": {
+    "sample_hz": 5.0,
+    "move_home_on_start": true,
+    "auto_home_before_episode": true,
+    "save_failures_to_zarr": false,
+    "show_camera_preview": true,
+    "preview_window_name": "UR12E Speed-Only Collection",
+    "primary_point_cloud_camera": "wrist_d405"
+  },
+  "dataset": {
+    "zarr_path": "../data/zarr/vibration_grasp_laptop_remote/vibration_grasp_laptop_remote.zarr",
+    "raw_root": "../data/raw/vibration_grasp_laptop_remote",
+    "raw_session_prefix": "vibration_grasp_laptop_remote",
+    "raw_append_timestamp_session": false
+  },
+  "cameras": [
+    {
+      "name": "global_d405",
+      "role": "global",
+      "serial": "GLOBAL_REALSENSE_SERIAL_PLACEHOLDER",
+      "enabled": true,
+      "enable_color": true,
+      "is_debug_camera": false,
+      "depth_width": 640,
+      "depth_height": 480,
+      "color_width": 640,
+      "color_height": 480,
+      "fps": 15,
+      "point_cloud_frame": "camera",
+      "stride": 2,
+      "depth_min_m": 0.05,
+      "depth_max_m": 0.50,
+      "warmup_frames": 20
+    },
+    {
+      "name": "wrist_d405",
+      "role": "wrist",
+      "serial": "WRIST_REALSENSE_SERIAL_PLACEHOLDER",
+      "enabled": true,
+      "enable_color": true,
+      "is_debug_camera": true,
+      "use_for_primary_image": true,
+      "use_for_primary_point_cloud": true,
+      "depth_width": 640,
+      "depth_height": 480,
+      "color_width": 640,
+      "color_height": 480,
+      "fps": 15,
+      "point_cloud_frame": "camera",
+      "stride": 2,
+      "depth_min_m": 0.04,
+      "depth_max_m": 0.40,
+      "warmup_frames": 20
+    }
+  ]
+}

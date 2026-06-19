@@ -1,0 +1,33 @@
+{
+  "artifact_dir": "../deploy_artifacts",
+  "runtime": "torchscript",
+  "task": "pole_pickoff",
+  "action_mode": "delta_tcp_pose_gripper",
+  "control_hz": 5.0,
+  "dry_run": true,
+  "global_camera": "global_d405",
+  "wrist_camera": "wrist_d405",
+  "safety": {
+    "max_translation_per_step_m": 0.005,
+    "max_rotation_per_step_rad": 0.03,
+    "normal_max_translation_per_step_m": 0.015,
+    "normal_max_rotation_per_step_rad": 0.08,
+    "translation_ema_alpha": 1.0,
+    "rotation_ema_alpha": 1.0,
+    "gripper_ema_alpha": 1.0,
+    "translation_deadband_m": 0.0,
+    "rotation_deadband_rad": 0.0,
+    "gripper_deadband": 0.0,
+    "action_rotation_correction_rpy_deg": [0.0, 0.0, 0.0]
+  },
+  "point_cloud": {
+    "num_points": 512,
+    "crop_min": [0.28, -0.2, 0.0],
+    "crop_max": [0.62, 0.2, 0.35],
+    "sampling": "fps"
+  },
+  "logging": {
+    "output_dir": "deploy_logs",
+    "save_step_trace": true
+  }
+}

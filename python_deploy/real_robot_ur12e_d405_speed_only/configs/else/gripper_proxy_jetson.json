@@ -1,0 +1,22 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765,
+    "poll_hz": 50.0
+  },
+  "default_gripper_fraction": 1.0,
+  "gripper": {
+    "enabled": true,
+    "type": "twopin_gpio",
+    "gpio_mode": "BOARD",
+    "open_pin": 18,
+    "close_pin": 12,
+    "limit_open_pin": 16,
+    "limit_close_pin": 22,
+    "active_high": true,
+    "limit_trigger_low": true,
+    "pulse_duration_s": 2.0,
+    "stop_after_command": true,
+    "open_threshold": 0.5
+  }
+}

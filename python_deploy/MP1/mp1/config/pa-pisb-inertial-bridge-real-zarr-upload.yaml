@@ -1,0 +1,157 @@
+defaults:
+  - task: real_pole_pickoff_clean_upload
+
+name: train_pa_pisb_inertial_bridge_real_zarr_upload
+
+task_name: ${task.name}
+shape_meta: ${task.shape_meta}
+exp_name: "pa_pisb_inertial_bridge_real_zarr_upload"
+
+horizon: 4
+n_obs_steps: 2
+n_action_steps: 4
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+keypoint_visible_rate: 1.0
+obs_as_global_cond: True
+
+policy:
+  _target_: mp1.policy.pa_pisb_inertial_bridge_policy.PAPISBInertialBridgePolicy
+  use_point_crop: true
+  condition_type: film
+  use_down_condition: true
+  use_mid_condition: true
+  use_up_condition: true
+
+  bridge_stiffness: 0.1
+  bridge_damping: 0.1
+  bridge_sigma: 0.1
+  num_inference_steps: 1
+
+  pa_lambda_amplitude: 0.35
+  pa_head_hidden_dim: 256
+  pa_head_dropout: 0.0
+  pa_center_reg_weight: 1.0e-3
+  pa_phase_reg_weight: 1.0e-3
+  pa_aniso_floor_weight: 0.0
+  pa_aniso_floor: 0.02
+
+  ib_hidden_dim: 128
+  ib_seq_residual_scale: 0.20
+  ib_bridge_residual_scale: 0.20
+  ib_reg_weight: 1.0e-4
+
+  diffusion_step_embed_dim: 128
+  down_dims:
+    - 512
+    - 1024
+    - 2048
+  crop_shape:
+    - 84
+    - 84
+  encoder_output_dim: 64
+  horizon: ${horizon}
+  kernel_size: 5
+  n_action_steps: ${n_action_steps}
+  n_groups: 8
+  n_obs_steps: ${n_obs_steps}
+  obs_as_global_cond: true
+  shape_meta: ${shape_meta}
+
+  use_pc_color: false
+  pointnet_type: "mlp"
+
+  pointcloud_encoder_cfg:
+    in_channels: 3
+    out_channels: ${policy.encoder_output_dim}
+    use_layernorm: true
+    final_norm: layernorm
+    normal_channel: false
+
+ema:
+  _target_: mp1.model.mean.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+
+dataloader:
+  batch_size: 64
+  num_workers: 4
+  shuffle: True
+  pin_memory: True
+  persistent_workers: False
+
+val_dataloader:
+  batch_size: 64
+  num_workers: 4
+  shuffle: False
+  pin_memory: True
+  persistent_workers: False
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-4
+  betas: [0.95, 0.999]
+  eps: 1.0e-8
+  weight_decay: 1.0e-6
+
+training:
+  device: "cuda:0"
+  seed: 42
+  debug: False
+  resume: False
+  lr_scheduler: cosine
+  lr_warmup_steps: 200
+  num_epochs: 2000
+  gradient_accumulate_every: 1
+  use_ema: True
+  run_validation: True
+  rollout_every: 200
+  checkpoint_every: 50
+  val_every: 1
+  sample_every: 20
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+  max_grad_norm: 1.0
+  ema_decay: 0.95
+
+logging:
+  group: ${exp_name}
+  id: null
+  mode: online
+  name: ${exp_name}_${training.seed}
+  project: pa_pisb_inertial_bridge_real_zarr_upload
+  resume: true
+  tags:
+    - pa-pisb
+    - inertial-bridge
+    - real
+    - clean-zarr
+    - upload
+
+checkpoint:
+  save_ckpt: True
+  save_periodic_every: 200
+  topk:
+    monitor_key: val_loss
+    mode: min
+    k: 1
+    format_str: 'epoch={epoch:04d}-val_loss={val_loss:.6f}.ckpt'
+  save_last_ckpt: True
+  save_last_snapshot: False
+
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}

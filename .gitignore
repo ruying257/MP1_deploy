@@ -1,0 +1,61 @@
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# CMake/C++ 构建产物
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+CTestTestfile.cmake
+cmake_install.cmake
+compile_commands.json
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# IDE 与本地工具状态
+.vscode/
+.idea/
+.codex
+README_myself.md
+
+# 大模型、导出模型和推理产物
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.engine
+*.plan
+deploy_artifacts/
+
+# 数据集、采集结果和部署日志
+python_deploy/data/
+python_deploy/deploy_results/
+python_deploy/myenv_*.yml
+deploy_logs/
+real_input_tensors/
+*.zarr/
+*.npz
+*.npy
+*.ply
+
+# 本地私有配置
+*.private.json
+*.local.json
+configs/local/
+cpp_deploy/configs/local/
+python_deploy/**/configs/local/
+
+# 系统文件
+.DS_Store
+Thumbs.db

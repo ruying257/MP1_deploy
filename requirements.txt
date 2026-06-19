@@ -1,0 +1,27 @@
+# 核心推理与深度学习依赖
+torch
+torchvision
+numpy
+scipy
+
+# 图像、点云和数据处理依赖
+opencv-python
+Pillow
+imageio
+zarr
+numcodecs
+numba
+
+# 配置与训练代码兼容依赖
+dill==0.3.5.1
+hydra-core
+omegaconf
+termcolor
+tqdm
+einops
+diffusers
+swanlab
+
+# 真机部署依赖：需要匹配 Jetson/Ubuntu 上的驱动和 SDK
+pyrealsense2
+ur-rtde

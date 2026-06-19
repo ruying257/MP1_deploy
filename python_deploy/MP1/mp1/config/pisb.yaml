@@ -1,0 +1,152 @@
+defaults:
+  - task: adroit_hammer
+
+name: train_pisb_experiment
+
+task_name: ${task.name}
+shape_meta: ${task.shape_meta}
+exp_name: "debug"
+
+horizon: 4
+n_obs_steps: 2
+n_action_steps: 4
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+keypoint_visible_rate: 1.0
+obs_as_global_cond: True
+
+policy:
+  _target_: mp1.policy.pisb_policy.PISBPolicy
+  use_point_crop: true
+  condition_type: film
+  use_down_condition: true
+  use_mid_condition: true
+  use_up_condition: true
+  # [新增] 你的创新点参数
+  bridge_stiffness: 0.1   # 虚拟弹簧刚度，模拟了机械臂在运动过程中的“硬度”。刚度越大，系统对误差的容忍度越低，轨迹被约束得越紧。 增大 ($\uparrow$)：轨迹会变得更加“确定性”。方差（不确定性）随着时间 $t$ 增加而迅速衰减。这模拟了机械臂在接近抓取目标时，肌肉绷紧，不允许随机晃动。减小 ($\downarrow$)：轨迹在后期依然保持一定的随机性（柔性）。 0.0 ~ 2.0
+  bridge_damping: 0.1     # 物理阻尼系数，控制了从起点到终点的“插值速度”。 增大 ($\uparrow$)：系统的阻力变大。均值轨迹不再是匀速直线，而是呈现出一种“先慢后快”或符合动力学阻尼的非线性弧线。这有助于模拟真实物理世界中带惯性的运动。减小 ($\downarrow$)：阻力变小，轨迹退化为匀速直线运动。 0.0 ~ 2.0
+  bridge_sigma: 0.1       # 系统温度 (Temperature) 或 扩散强度，决定了训练时生成的轨迹“管道”有多粗。增大 ($\uparrow$)：高温模式。轨迹充满强烈的随机扰动。优点：模型见识过各种偏离轨道的恶劣情况，因此训练出的策略鲁棒性（抗干扰能力）极强。减小 ($\downarrow$)：低温模式。轨迹几乎就是一条细线。优点：训练非常稳定，Loss 下降快（接近 MP1 Baseline）。缺点：鲁棒性稍差，遇到没见过的状态可能不知道怎么回正。  0.01 ~ 1.0
+  # [新增] 推理步数设置
+  # 设为 10 或 20。步数越多，轨迹越精准，但推理越慢。
+  # 针对 PISB 的曲线轨迹，10 步通常能带来巨大的性能提升。
+  # 取1时，bridge_stiffness、bridge_damping、bridge_sigma设置为0.1，取10时，设置为1.5、0.5、0.1
+  num_inference_steps: 1
+  
+  diffusion_step_embed_dim: 128
+  down_dims:
+  - 512
+  - 1024
+  - 2048
+  crop_shape:
+  - 84
+  - 84
+  encoder_output_dim: 64
+  horizon: ${horizon}
+  kernel_size: 5
+  n_action_steps: ${n_action_steps}
+  n_groups: 8
+  n_obs_steps: ${n_obs_steps}
+  obs_as_global_cond: true
+  shape_meta: ${shape_meta}
+
+  use_pc_color: false
+  pointnet_type: "mlp"
+
+
+  pointcloud_encoder_cfg:
+    in_channels: 3
+    out_channels: ${policy.encoder_output_dim}
+    use_layernorm: true
+    final_norm: layernorm # layernorm, none
+    normal_channel: false
+
+
+ema:
+  _target_: mp1.model.mean.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+
+dataloader:
+  batch_size: 128
+  num_workers: 8
+  shuffle: True
+  pin_memory: True
+  persistent_workers: False
+
+val_dataloader:
+  batch_size: 128
+  num_workers: 8
+  shuffle: False
+  pin_memory: True
+  persistent_workers: False
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-4
+  betas: [0.95, 0.999]
+  eps: 1.0e-8
+  weight_decay: 1.0e-6
+
+training:
+  device: "cuda:0"
+  seed: 42
+  debug: False
+  resume: False
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 3000
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 200
+  checkpoint_every: 200
+  val_every: 1
+  sample_every: 5
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+  max_grad_norm: 1.0
+  ema_decay: 0.95
+
+# Conditional_ConsistencyFM:
+#   eps : 1e-2
+#   num_segments : 2
+#   boundary : 1
+#   delta  : 1e-2
+#   alpha :  1e-5
+#   num_inference_step : 1
+
+logging:
+  group: ${exp_name}
+  id: null
+  mode: online
+  name: ${exp_name}_${training.seed}
+  project: pisb
+  resume: true
+  tags:
+  - pisb
+
+checkpoint:
+  save_ckpt: False # if True, save checkpoint every checkpoint_every
+  topk:
+    monitor_key: test_mean_score
+    mode: max
+    k: 1
+    format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
+  save_last_ckpt: True # this only saves when save_ckpt is True
+  save_last_snapshot: False
+
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}

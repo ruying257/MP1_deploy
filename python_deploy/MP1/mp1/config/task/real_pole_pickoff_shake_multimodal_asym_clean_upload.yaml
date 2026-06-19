@@ -1,0 +1,34 @@
+name: real_pole_pickoff_shake_multimodal_asym_clean_upload
+
+task_name: ${name}
+
+global_image_shape: &global_image_shape [3, 128, 128]
+wrist_image_shape: &wrist_image_shape [3, 96, 96]
+shape_meta: &shape_meta
+  obs:
+    global_image:
+      shape: *global_image_shape
+      type: rgb
+    wrist_image:
+      shape: *wrist_image_shape
+      type: rgb
+    point_cloud:
+      shape: [512, 3]
+      type: point_cloud
+    agent_pos:
+      shape: [10]
+      type: low_dim
+  action:
+    shape: [7]
+
+env_runner: null
+
+dataset:
+  _target_: mp1.dataset.real_multimodal_dataset.RealMultimodalDataset
+  zarr_path: /home/amax/cqy/MP1/MP1/data/clean_zarr/pole_pickoff_shake_multimodal_asym_clean.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.2
+  max_train_episodes: null
