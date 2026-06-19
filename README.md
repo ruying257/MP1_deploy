@@ -1,7 +1,12 @@
 # MP1 Jetson 真机部署项目
 
-![实验场景](./asserts/实验场景.png)
-![抓取等电位杆任务](./asserts/取杆特写视频.gif)
+<div align="center">
+<img src="./asserts/实验场景.png" width="600" />
+</div>
+
+<div align="center">
+<img src="./asserts/取杆特写视频.gif" width="600" />
+</div>
 
 ## 结论
 
