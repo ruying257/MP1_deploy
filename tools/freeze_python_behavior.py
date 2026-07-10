@@ -19,7 +19,7 @@
 
 输入:
 - 策略 dump 文件 (policy_trace_*/trial_*/policy_dumps/*.npz)
-- 任务配置文件 (collect_pole_pickoff_laptop_remote.json)
+- 任务配置文件 (pole_pickoff.json)
 
 输出:
 - python_behavior_manifest.json (默认路径：deploy_artifacts/)

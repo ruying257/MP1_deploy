@@ -42,10 +42,10 @@ cmake --build build -j
 | `mp1_real_robot_control`         | 读取真实输入并执行小限幅 TCP 闭环控制，默认 dry-run         | 默认否    |
 | `mp1_realtime_robot_control`     | 单进程 C++ 采集、ring buffer、推理和小限幅控制          | 默认否    |
 | `test_safety_filter`             | 测试平移/旋转限幅和夹爪动作屏蔽逻辑                       | 否      |
-| `tools/dump_trt_case.py`         | 冻结 ONNX/TensorRT 对齐 case，输出中间张量          | 否      |
-| `tools/export_mp1_onnx_parts.py` | 导出 `obs_encoder.onnx` 和 `unet_step.onnx` | 否      |
-| `tools/check_onnx_parity.py`     | 检查 ONNX Runtime 对齐并生成 TensorRT 证据报告      | 否      |
-| `tools/check_trt_case_parity.py` | 不加载训练代码，轻量检查已冻结 TensorRT case           | 否      |
+| `tools.tensorrt.dump_trt_case`         | 冻结 ONNX/TensorRT 对齐 case，输出中间张量          | 否      |
+| `tools.tensorrt.export_mp1_onnx_parts` | 导出 `obs_encoder.onnx` 和 `unet_step.onnx` | 否      |
+| `tools.tensorrt.check_onnx_parity`     | 检查 ONNX Runtime 对齐并生成 TensorRT 证据报告      | 否      |
+| `tools.tensorrt.check_trt_case_parity` | 不加载训练代码，轻量检查已冻结 TensorRT case           | 否      |
 
 ## 部署原则
 
@@ -88,11 +88,15 @@ cpp_deploy/
 
 ```text
 tools/
-  dump_trt_case.py
-  export_mp1_onnx_parts.py
-  check_onnx_parity.py
-  check_trt_case_parity.py
-  mp1_trt_utils.py
+  export_mp1_policy.py
+  freeze_python_behavior.py
+  test_npz_output.py
+  tensorrt/
+    dump_trt_case.py
+    export_mp1_onnx_parts.py
+    check_onnx_parity.py
+    check_trt_case_parity.py
+    mp1_trt_utils.py
 ```
 
 `deploy_artifacts/` 通常放在仓库根目录下，包含：
@@ -745,19 +749,19 @@ Jetson CPU dry-run 已观察到推理耗时大约是数百毫秒量级；CUDA wa
 ```bash
 cd /mnt/nvme/MP1_model
 
-python3 tools/dump_trt_case.py \
+python3 -m tools.tensorrt.dump_trt_case \
   --checkpoint python_deploy/checkpoints/latest.ckpt \
   --tensor-dir deploy_artifacts/sample_tensors \
   --output-dir deploy_artifacts/trt_cases/case_000 \
   --device cpu
 
-python3 tools/export_mp1_onnx_parts.py \
+python3 -m tools.tensorrt.export_mp1_onnx_parts \
   --checkpoint python_deploy/checkpoints/latest.ckpt \
   --tensor-dir deploy_artifacts/sample_tensors \
   --output-dir deploy_artifacts/onnx \
   --device cpu
 
-python3 tools/check_onnx_parity.py \
+python3 -m tools.tensorrt.check_onnx_parity \
   --checkpoint python_deploy/checkpoints/latest.ckpt \
   --tensor-dir deploy_artifacts/sample_tensors \
   --onnx-dir deploy_artifacts/onnx \
@@ -771,7 +775,7 @@ python3 tools/check_onnx_parity.py \
 如果 Jetson TensorRT 验证环境不想安装完整训练依赖，可以使用轻量 case 检查脚本。它只消费 `dump_trt_case.py` 生成的 `case_000` 和 ONNX 文件，不加载 checkpoint、Hydra、dill 或训练代码：
 
 ```bash
-python3 tools/check_trt_case_parity.py \
+python3 -m tools.tensorrt.check_trt_case_parity \
   --case-dir deploy_artifacts/trt_cases/case_000 \
   --onnx-dir deploy_artifacts/onnx \
   --trt-output-dir deploy_artifacts/trt_engines \
@@ -811,7 +815,7 @@ deploy_artifacts/trt_engines/v_pred_trt_000.npy
 deploy_artifacts/trt_engines/action_trt.npy
 ```
 
-`tools/check_onnx_parity.py` 会自动读取这些文件并计算 PyTorch vs TensorRT FP16 误差。
+`python3 -m tools.tensorrt.check_onnx_parity` 会自动读取这些文件并计算 PyTorch vs TensorRT FP16 误差。
 
 验收边界：
 

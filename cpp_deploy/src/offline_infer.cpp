@@ -2,8 +2,9 @@
  * 1. 加载模型
  * 2. 加载张量数据
  * 3. 执行推理
- * 4. 保存推理结果
+ * 4. 对比python版expected_action，验证C++ LibTorch 是否复现了 Python 的原始模型输出
  */
+ // first_action 的 max_abs_diff = 3.57628e-07(极小) 证明链路基本对齐
  // CPU 推理
 #include "mp1_deploy/policy_runtime.hpp"
 #include "mp1_deploy/safety_filter.hpp"
@@ -91,9 +92,6 @@ torch::Tensor load_tensor(const std::string& path) {
 
 /**
  * @brief 创建零输入数据
- * 
- * 默认 shape 对应 PLAN.md 里的 pole-pickoff v1 模型
- * 
  * @return 零初始化的策略输入
  */
 mp1_deploy::PolicyInputs make_zero_inputs() {

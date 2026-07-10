@@ -16,7 +16,28 @@ from typing import Any, Dict, Mapping, Optional
 import numpy as np
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_repo_path(path: str | Path) -> Path:
+    """将相对路径解析到仓库根目录。
+
+    Args:
+        path: 相对或绝对路径。
+
+    Returns:
+        对应的路径对象。
+    """
+    value = Path(path)
+    return value if value.is_absolute() else REPO_ROOT / value
+
+
 def parse_args() -> argparse.Namespace:
+    """解析轻量 ONNX/TensorRT case 校验参数。
+
+    Returns:
+        包含 case、ONNX、TensorRT 输出、报告和基准参数的命名空间。
+    """
     parser = argparse.ArgumentParser(description="Check exported MP1 ONNX/TensorRT case without loading training code.")
     parser.add_argument("--case-dir", default="deploy_artifacts/trt_cases/case_000")
     parser.add_argument("--onnx-dir", default="deploy_artifacts/onnx")
@@ -29,14 +50,39 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_json(path: Path) -> Dict[str, Any]:
+    """读取 UTF-8 JSON 文件。
+
+    Args:
+        path: JSON 文件路径。
+
+    Returns:
+        解析后的字典。
+    """
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def max_abs_diff(a: np.ndarray, b: np.ndarray) -> float:
+    """计算两个数组间的最大逐元素绝对误差。
+
+    Args:
+        a: 参考数组。
+        b: 待比较数组。
+
+    Returns:
+        基于 ``float32`` 的最大绝对误差。
+    """
     return float(np.max(np.abs(np.asarray(a, dtype=np.float32) - np.asarray(b, dtype=np.float32))))
 
 
 def percentile_stats(values_ms) -> Dict[str, float]:
+    """计算延迟样本的分位数与均值。
+
+    Args:
+        values_ms: 单位为毫秒的延迟样本。
+
+    Returns:
+        p50、p95、p99 和均值。
+    """
     values = np.asarray(list(values_ms), dtype=np.float64)
     return {
         "p50_ms": float(np.percentile(values, 50)),
@@ -47,6 +93,17 @@ def percentile_stats(values_ms) -> Dict[str, float]:
 
 
 def load_ort_session(path: Path):
+    """按可用 provider 创建 ONNX Runtime 会话。
+
+    Args:
+        path: ONNX 模型文件路径。
+
+    Returns:
+        ONNX Runtime 会话和实际启用的 provider 列表。
+
+    Raises:
+        RuntimeError: 未安装 ``onnxruntime`` 或 ``onnxruntime-gpu`` 时抛出。
+    """
     try:
         import onnxruntime as ort
     except ImportError as exc:
@@ -59,9 +116,21 @@ def load_ort_session(path: Path):
 
 
 def action_from_final_x(final_x: np.ndarray, meta: Mapping[str, Any]) -> np.ndarray:
+    """从最终归一化状态还原实际执行的动作段。
+
+    Args:
+        final_x: 外部采样循环结束后的归一化状态。
+        meta: 冻结 case 的元数据，必须包含动作 normalizer。
+
+    Returns:
+        与 ``action_ref.npy`` 对应的可执行动作段。
+
+    Raises:
+        RuntimeError: 元数据缺少动作反归一化参数时抛出。
+    """
     normalizer = meta.get("action_normalizer")
     if not normalizer:
-        raise RuntimeError("case meta 缺少 action_normalizer；请用新版 tools/dump_trt_case.py 重新生成 case。")
+        raise RuntimeError("case meta 缺少 action_normalizer；请用 python3 -m tools.tensorrt.dump_trt_case 重新生成 case。")
     action_dim = int(meta["action_dim"])
     n_obs_steps = int(meta["n_obs_steps"])
     n_action_steps = int(meta["n_action_steps"])
@@ -76,8 +145,19 @@ def action_from_final_x(final_x: np.ndarray, meta: Mapping[str, Any]) -> np.ndar
 
 
 def run_ort_case(case_dir: Path, onnx_dir: Path, meta: Mapping[str, Any]) -> Dict[str, Any]:
+    """使用冻结 case 在 ONNX Runtime 中复现完整采样过程。
+
+    Args:
+        case_dir: 包含输入和 PyTorch 参考输出的冻结 case 目录。
+        onnx_dir: ``obs_encoder.onnx`` 与 ``unet_step.onnx`` 所在目录。
+        meta: case 元数据。
+
+    Returns:
+        编码器输出、逐步 U-Net 输出、最终状态、动作和 provider 信息。
+    """
     obs_session, obs_providers = load_ort_session(onnx_dir / "obs_encoder.onnx")
     unet_session, unet_providers = load_ort_session(onnx_dir / "unet_step.onnx")
+    # 先运行观测编码器，再由外部循环重复调用单步 U-Net 子图。
     global_cond = obs_session.run(
         ["global_cond"],
         {
@@ -116,6 +196,16 @@ def run_ort_case(case_dir: Path, onnx_dir: Path, meta: Mapping[str, Any]) -> Dic
 
 
 def benchmark(call_once, warmup: int, repeats: int) -> Dict[str, float]:
+    """对一次完整 case 推理执行预热和延迟采样。
+
+    Args:
+        call_once: 单次待测调用。
+        warmup: 不计入统计的预热次数。
+        repeats: 计入统计的重复次数。
+
+    Returns:
+        毫秒级 p50、p95、p99 和均值。
+    """
     for _ in range(max(0, warmup)):
         call_once()
     samples = []
@@ -127,6 +217,15 @@ def benchmark(call_once, warmup: int, repeats: int) -> Dict[str, float]:
 
 
 def optional_trt_diffs(case_dir: Path, trt_output_dir: Path) -> Dict[str, float]:
+    """比较可选的 TensorRT runner 输出与冻结 PyTorch 参考输出。
+
+    Args:
+        case_dir: 冻结 case 目录。
+        trt_output_dir: 可选 ``.npy`` TensorRT 输出目录。
+
+    Returns:
+        已存在输出文件的误差字典；缺失文件不会视为错误。
+    """
     diffs: Dict[str, float] = {}
     refs = {
         "global_cond": case_dir / "global_cond_ref.npy",
@@ -145,10 +244,24 @@ def optional_trt_diffs(case_dir: Path, trt_output_dir: Path) -> Dict[str, float]
 
 
 def fmt(value: Optional[float]) -> str:
+    """将可选浮点数格式化为报告表格单元格。
+
+    Args:
+        value: 待显示数值。
+
+    Returns:
+        数值字符串；缺失时返回 ``N/A``。
+    """
     return "N/A" if value is None else f"{float(value):.6g}"
 
 
 def write_report(path: Path, payload: Mapping[str, Any]) -> None:
+    """生成不依赖训练代码的 Markdown 对齐报告。
+
+    Args:
+        path: Markdown 报告输出路径。
+        payload: ONNX Runtime、TensorRT 误差和延迟统计结果。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     ort_diffs = payload.get("ort_diffs", {})
     trt_diffs = payload.get("trt_diffs", {})
@@ -189,16 +302,18 @@ def write_report(path: Path, payload: Mapping[str, Any]) -> None:
 
 
 def main() -> None:
+    """执行轻量 case 对齐、可选 TensorRT 误差比较并写出报告。"""
     args = parse_args()
-    case_dir = Path(args.case_dir).resolve()
-    onnx_dir = Path(args.onnx_dir).resolve()
-    trt_output_dir = Path(args.trt_output_dir).resolve()
-    report = Path(args.report).resolve()
+    case_dir = resolve_repo_path(args.case_dir)
+    onnx_dir = resolve_repo_path(args.onnx_dir)
+    trt_output_dir = resolve_repo_path(args.trt_output_dir)
+    report = resolve_repo_path(args.report)
     meta = load_json(case_dir / "meta.json")
 
     ort_diffs: Dict[str, float] = {}
     providers: Dict[str, Any] = {}
     latency = None
+    # ONNX Runtime 可选；即使 Jetson 仅保留 TensorRT 产物，也能生成报告。
     if not args.skip_ort:
         ort_result = run_ort_case(case_dir, onnx_dir, meta)
         providers = ort_result["providers"]

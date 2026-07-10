@@ -28,6 +28,7 @@ compile_commands.json
 .idea/
 .codex
 README_myself.md
+AGENTS.md
 
 # 大模型、导出模型和推理产物
 *.ckpt
@@ -59,3 +60,6 @@ python_deploy/**/configs/local/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 归档文件
+archive/

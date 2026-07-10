@@ -30,7 +30,7 @@ for path in [PY_DEPLOY_ROOT, MP1_ROOT, ROBOT_SCRIPT_DIR]:
         sys.path.insert(0, str(path))
 
 # 导入策略加载模块
-from deploy_real_policy import load_workspace_policy  # noqa: E402
+from deploy_real_policy import load_workspace_policy 
 
 
 class MP1TorchScriptWrapper(nn.Module):
@@ -56,9 +56,10 @@ class MP1TorchScriptWrapper(nn.Module):
         """
         执行单个字段的线性归一化/反归一化。
 
-        注意：这里不能按 normalizer.py 里的实现把输入搬到 scale.device。
+        注意：这里不能按 normalizer.py（原版MP1）里的实现把输入搬到 scale.device。
         torch.jit.trace 会把导出时的设备写死；如果在 CPU 上导出，Jetson CUDA 推理时
         就会出现部分算子固定在 CPU、部分算子在 GPU 的混用错误。
+        现在的逻辑：仅改变输入张量的 dtype 为 scale 的 dtype，设备由调用方决定
         """
         params = self.policy.normalizer.params_dict[key]
         scale = params["scale"]
@@ -135,7 +136,7 @@ class MP1TorchScriptWrapper(nn.Module):
         steps = self.policy.num_inference_steps if self.policy.num_inference_steps is not None else 10
         dt = 1.0 / float(steps)  # 时间步长
         # 从 x_current 派生，避免 torch.jit.trace 把 new_zeros 的导出设备写死。
-        r_zeros = x_current[:, 0, 0] * 0.0  # 随机变量（固定为0保持确定性）
+        r_zeros = x_current[:, 0, 0] * 0.0  # MeanFlow 的参考时间 r；部署采样固定为 0，保证确定性和训练/推理语义一致。
 
         for i in range(int(steps)):
             # 当前时间步

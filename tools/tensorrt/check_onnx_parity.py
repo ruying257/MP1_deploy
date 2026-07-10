@@ -16,7 +16,7 @@ from typing import Any, Dict, Mapping, Optional
 import numpy as np
 import torch
 
-from mp1_trt_utils import (
+from .mp1_trt_utils import (
     action_from_normalized_numpy,
     case_input_numpy,
     load_policy,
@@ -32,6 +32,11 @@ from mp1_trt_utils import (
 
 
 def parse_args() -> argparse.Namespace:
+    """解析 ONNX Runtime 对齐与 TensorRT 证据报告参数。
+
+    Returns:
+        包含模型、样本、设备、基准和报告路径的命名空间。
+    """
     parser = argparse.ArgumentParser(description="Check MP1 ONNX Runtime parity and write TensorRT evidence report.")
     parser.add_argument("--checkpoint", default="python_deploy/checkpoints/latest.ckpt")
     parser.add_argument("--tensor-dir", default="deploy_artifacts/sample_tensors")
@@ -50,12 +55,32 @@ def parse_args() -> argparse.Namespace:
 
 
 def select_device(name: str) -> torch.device:
+    """选择可用的 PyTorch 基准设备，并在 CUDA 不可用时回退 CPU。
+
+    Args:
+        name: 用户请求的设备字符串。
+
+    Returns:
+        当前环境可用的设备对象。
+    """
     if name.startswith("cuda") and not torch.cuda.is_available():
         return torch.device("cpu")
     return torch.device(name)
 
 
 def load_ort_session(path: Path, requested_device: torch.device):
+    """按请求设备和可用 provider 创建 ONNX Runtime 会话。
+
+    Args:
+        path: ONNX 模型路径。
+        requested_device: 用户请求的基准设备。
+
+    Returns:
+        ONNX Runtime 会话和实际启用的 provider 列表。
+
+    Raises:
+        RuntimeError: 未安装 ONNX Runtime 时抛出。
+    """
     try:
         import onnxruntime as ort
     except ImportError as exc:
@@ -76,6 +101,19 @@ def run_ort_with_sessions(
     unet_session,
     image_input_float: bool,
 ) -> Dict[str, Any]:
+    """使用已创建的 ONNX Runtime 会话复现 MP1 外部采样循环。
+
+    Args:
+        policy: 含动作 normalizer 的 PyTorch 策略。
+        tensors: 固定黄金输入张量。
+        obs_session: 观测编码器 ONNX Runtime 会话。
+        unet_session: 单步 U-Net ONNX Runtime 会话。
+        image_input_float: 是否将图像作为 ``float32`` 的 ``0..255`` 输入。
+
+    Returns:
+        编码器输出、逐步 U-Net 记录、最终动作轨迹和可执行动作段。
+    """
+    # ONNX 子图拆分后，采样循环仍由 Python 在图外显式维护。
     inputs = case_input_numpy(tensors, image_as_float=image_input_float)
     obs_inputs = {
         "global_image": np.ascontiguousarray(inputs["global_image"]),
@@ -121,6 +159,18 @@ def run_ort_parts(
     device: torch.device,
     image_input_float: bool,
 ) -> Dict[str, Any]:
+    """加载两个 ONNX 子图并运行一次完整的 ONNX Runtime 推理。
+
+    Args:
+        policy: 含动作 normalizer 的 PyTorch 策略。
+        tensors: 固定黄金输入张量。
+        onnx_dir: ONNX 子图目录。
+        device: 请求的推理设备。
+        image_input_float: 图像输入 dtype 约定。
+
+    Returns:
+        带实际 provider 信息的 ONNX Runtime 推理结果。
+    """
     obs_session, obs_providers = load_ort_session(onnx_dir / "obs_encoder.onnx", device)
     unet_session, unet_providers = load_ort_session(onnx_dir / "unet_step.onnx", device)
     result = run_ort_with_sessions(policy, tensors, obs_session, unet_session, image_input_float)
@@ -129,6 +179,17 @@ def run_ort_parts(
 
 
 def timed_loop(callable_obj, warmup: int, repeats: int, device: torch.device) -> Dict[str, float]:
+    """运行预热和重复调用，并返回端到端延迟统计。
+
+    Args:
+        callable_obj: 单次待测调用。
+        warmup: 预热次数，不计入统计。
+        repeats: 统计采样次数。
+        device: 用于 CUDA 同步的设备。
+
+    Returns:
+        单位为毫秒的 p50、p95、p99 和均值。
+    """
     for _ in range(max(0, warmup)):
         callable_obj()
     sync_if_cuda(device)
@@ -143,6 +204,18 @@ def timed_loop(callable_obj, warmup: int, repeats: int, device: torch.device) ->
 
 
 def benchmark_torchscript(model_path: Path, tensors: Mapping[str, torch.Tensor], device: torch.device, warmup: int, repeats: int) -> Optional[Dict[str, float]]:
+    """基准测试完整 TorchScript 策略推理。
+
+    Args:
+        model_path: ``policy_infer.pt`` 路径。
+        tensors: 固定黄金输入。
+        device: TorchScript 执行设备。
+        warmup: 预热次数。
+        repeats: 统计采样次数。
+
+    Returns:
+        延迟统计；模型文件不存在时返回 ``None``。
+    """
     if not model_path.exists():
         return None
     module = torch.jit.load(str(model_path), map_location=device).eval()
@@ -170,6 +243,20 @@ def benchmark_ort(
     repeats: int,
     image_input_float: bool,
 ) -> Optional[Dict[str, float]]:
+    """基准测试两个 ONNX 子图及其外部采样循环。
+
+    Args:
+        policy: 含模型配置和 normalizer 的策略。
+        tensors: 固定黄金输入。
+        onnx_dir: ONNX 子图目录。
+        device: 请求的 ONNX Runtime 设备。
+        warmup: 预热次数。
+        repeats: 统计采样次数。
+        image_input_float: 图像输入 dtype 约定。
+
+    Returns:
+        端到端 ONNX Runtime 延迟统计；缺少子图时返回 ``None``。
+    """
     if not (onnx_dir / "obs_encoder.onnx").exists() or not (onnx_dir / "unet_step.onnx").exists():
         return None
 
@@ -183,12 +270,21 @@ def benchmark_ort(
 
 
 def read_optional_json(path: Path) -> Optional[Dict[str, Any]]:
+    """读取可选 JSON 文件，不存在时返回 ``None``。
+
+    Args:
+        path: 待读取的 JSON 路径。
+
+    Returns:
+        解析后的字典；文件不存在时为 ``None``。
+    """
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def compare_optional_trt_outputs(trt_output_dir: Path, reference: Mapping[str, Any]) -> Dict[str, float]:
+    # 输入目录约定由 docstring 列出的 .npy 文件组成；缺失文件不会中断报告生成。
     """读取 TensorRT runner 可选输出，直接和 PyTorch 参考输出比较。
 
     约定文件名：
@@ -214,6 +310,15 @@ def compare_optional_trt_outputs(trt_output_dir: Path, reference: Mapping[str, A
 
 
 def fmt_float(value: Optional[float], digits: int = 6) -> str:
+    """将报告中的可选浮点数格式化为紧凑字符串。
+
+    Args:
+        value: 待格式化数值。
+        digits: 有效数字位数。
+
+    Returns:
+        格式化数值；无效、无穷或缺失时返回 ``N/A``。
+    """
     if value is None:
         return "N/A"
     if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
@@ -222,6 +327,15 @@ def fmt_float(value: Optional[float], digits: int = 6) -> str:
 
 
 def latency_row(name: str, stats: Optional[Mapping[str, Any]]) -> str:
+    """生成 Markdown 延迟表的一行。
+
+    Args:
+        name: 运行时名称。
+        stats: 包含 p50、p95、p99 和均值的统计字典。
+
+    Returns:
+        单行 Markdown 表格文本。
+    """
     if not stats:
         return f"| {name} | N/A | N/A | N/A | N/A |"
     return (
@@ -234,6 +348,12 @@ def write_report(
     report_path: Path,
     payload: Mapping[str, Any],
 ) -> None:
+    """根据对齐误差、延迟和平台信息生成 TensorRT 证据报告。
+
+    Args:
+        report_path: Markdown 报告输出路径。
+        payload: 聚合的模型路径、误差、延迟和 TensorRT 指标。
+    """
     report_path.parent.mkdir(parents=True, exist_ok=True)
     platform_info = payload["platform"]
     diffs = payload.get("diffs", {})
@@ -306,7 +426,7 @@ def write_report(
             "",
             "## TensorRT 指标录入格式",
             "",
-            "`tools/check_onnx_parity.py` 会自动读取 `deploy_artifacts/trt_engines/trt_metrics.json`，也会读取同目录下可选的 `global_cond_trt.npy`、`v_pred_trt_000.npy`、`action_trt.npy` 做直接误差比较。格式示例：",
+            "`python3 -m tools.tensorrt.check_onnx_parity` 会自动读取 `deploy_artifacts/trt_engines/trt_metrics.json`，也会读取同目录下可选的 `global_cond_trt.npy`、`v_pred_trt_000.npy`、`action_trt.npy` 做直接误差比较。格式示例：",
             "",
             "```json",
             json.dumps(
@@ -335,6 +455,7 @@ def write_report(
 
 
 def main() -> None:
+    """执行 PyTorch、ONNX Runtime 与可选 TensorRT 的离线对齐验证。"""
     args = parse_args()
     requested_device = torch.device(args.device)
     device = select_device(args.device)
@@ -346,6 +467,7 @@ def main() -> None:
     metrics_json = resolve_repo_path(args.metrics_json)
     trt_output_dir = resolve_repo_path(args.trt_output_dir)
 
+    # 所有参考比较固定使用同一 checkpoint、黄金输入和推理设备约定。
     _, policy = load_policy(checkpoint, device=device)
     tensors = load_sample_tensors(tensor_dir, device=device)
     reference = run_reference_parts(policy, tensors)
@@ -353,6 +475,7 @@ def main() -> None:
     diffs: Dict[str, float] = {}
     ort_result: Optional[Dict[str, Any]] = None
     ort_providers: Dict[str, Any] = {}
+    # ONNX Runtime 先通过后，才有意义解读 TensorRT 误差与加速收益。
     if not args.skip_ort:
         ort_result = run_ort_parts(policy, tensors, onnx_dir, device, bool(args.image_input_float))
         ort_providers = ort_result["providers"]

@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 PY_DEPLOY_ROOT = REPO_ROOT / "python_deploy"
 MP1_ROOT = PY_DEPLOY_ROOT / "MP1"
 ROBOT_SCRIPT_DIR = PY_DEPLOY_ROOT / "real_robot_ur12e_d405_speed_only" / "scripts"
@@ -30,11 +30,28 @@ INPUT_NAMES = ["global_image", "wrist_image", "point_cloud", "agent_pos", "initi
 
 
 def resolve_repo_path(path: str | Path) -> Path:
+    """将相对路径解析为仓库根目录下的绝对路径。
+
+    Args:
+        path: 用户传入的相对或绝对路径。
+
+    Returns:
+        可用于文件读写的路径对象。
+    """
     value = Path(path)
     return value if value.is_absolute() else REPO_ROOT / value
 
 
 def load_policy(checkpoint: str | Path, device: torch.device):
+    """加载用于离线对齐的 EMA 策略。
+
+    Args:
+        checkpoint: 完整训练 checkpoint 的路径。
+        device: 策略运行所在的 PyTorch 设备。
+
+    Returns:
+        训练配置和处于 eval 模式的 EMA 策略。
+    """
     # 真正加载 checkpoint 时才导入部署栈，避免 --help 被 dill/torch 依赖挡住。
     from deploy_real_policy import load_workspace_policy
 
@@ -44,12 +61,30 @@ def load_policy(checkpoint: str | Path, device: torch.device):
 
 
 def load_tensor_module(path: str | Path, device: torch.device) -> torch.Tensor:
+    """从 TorchScript 常量模块读取一个张量。
+
+    Args:
+        path: 张量模块文件路径。
+        device: 目标设备。
+
+    Returns:
+        迁移到目标设备的张量。
+    """
     module = torch.jit.load(str(resolve_repo_path(path)), map_location=device)
     module.eval()
     return module.forward().to(device)
 
 
 def load_sample_tensors(tensor_dir: str | Path, device: torch.device) -> Dict[str, torch.Tensor]:
+    """加载并规范化黄金样本的输入 dtype。
+
+    Args:
+        tensor_dir: ``sample_tensors`` 目录。
+        device: 推理设备。
+
+    Returns:
+        按模型输入名组织的黄金张量字典。
+    """
     root = resolve_repo_path(tensor_dir)
     tensors = {name: load_tensor_module(root / f"{name}.pt", device) for name in INPUT_NAMES}
     tensors["global_image"] = tensors["global_image"].to(torch.uint8)
@@ -61,10 +96,24 @@ def load_sample_tensors(tensor_dir: str | Path, device: torch.device) -> Dict[st
 
 
 def tensor_to_numpy(value: torch.Tensor) -> np.ndarray:
+    """将脱离计算图的 CPU 张量转换为 NumPy 数组。
+
+    Args:
+        value: 任意设备上的 PyTorch 张量。
+
+    Returns:
+        对应的 CPU NumPy 数组。
+    """
     return value.detach().cpu().numpy()
 
 
 def save_numpy(path: str | Path, value: torch.Tensor | np.ndarray) -> None:
+    """将张量或数组保存为 ``.npy`` 文件。
+
+    Args:
+        path: 输出文件路径。
+        value: 需要保存的张量或 NumPy 数组。
+    """
     array = tensor_to_numpy(value) if torch.is_tensor(value) else np.asarray(value)
     path = resolve_repo_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,16 +121,39 @@ def save_numpy(path: str | Path, value: torch.Tensor | np.ndarray) -> None:
 
 
 def write_json(path: str | Path, payload: Mapping[str, Any]) -> None:
+    """以 UTF-8 和稳定键排序写出 JSON 元数据。
+
+    Args:
+        path: 输出 JSON 路径。
+        payload: 可 JSON 序列化的数据映射。
+    """
     path = resolve_repo_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def max_abs_diff(a: np.ndarray, b: np.ndarray) -> float:
+    """计算两个数组的最大逐元素绝对误差。
+
+    Args:
+        a: 第一个待比较数组。
+        b: 第二个待比较数组。
+
+    Returns:
+        转为 ``float32`` 后的最大绝对误差。
+    """
     return float(np.max(np.abs(np.asarray(a, dtype=np.float32) - np.asarray(b, dtype=np.float32))))
 
 
 def summarize_array(value: np.ndarray) -> Dict[str, Any]:
+    """提取数组的 shape、dtype 和基础数值统计量。
+
+    Args:
+        value: 需要摘要的数组。
+
+    Returns:
+        包含 shape、dtype、最值、均值和标准差的字典。
+    """
     array = np.asarray(value)
     array_f = array.astype(np.float32, copy=False)
     return {
@@ -95,11 +167,24 @@ def summarize_array(value: np.ndarray) -> Dict[str, Any]:
 
 
 def sync_if_cuda(device: torch.device) -> None:
+    """在 CUDA 设备上同步，保证延迟统计覆盖实际 GPU 执行时间。
+
+    Args:
+        device: 当前执行设备。
+    """
     if device.type == "cuda":
         torch.cuda.synchronize(device)
 
 
 def percentile_stats(values_ms: Iterable[float]) -> Dict[str, float]:
+    """汇总毫秒级样本的 p50、p95、p99 和均值。
+
+    Args:
+        values_ms: 延迟样本序列，单位为毫秒。
+
+    Returns:
+        延迟分位数和均值；空序列返回 NaN。
+    """
     values = np.asarray(list(values_ms), dtype=np.float64)
     if values.size == 0:
         return {"p50_ms": float("nan"), "p95_ms": float("nan"), "p99_ms": float("nan"), "mean_ms": float("nan")}
@@ -112,6 +197,14 @@ def percentile_stats(values_ms: Iterable[float]) -> Dict[str, float]:
 
 
 def command_output(command: list[str]) -> Optional[str]:
+    """尽力读取外部版本命令的首行输出，失败时不阻断验证。
+
+    Args:
+        command: 待执行的命令及参数。
+
+    Returns:
+        首行标准输出/错误输出；执行失败时返回 ``None``。
+    """
     try:
         result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=5)
     except Exception:
@@ -121,6 +214,11 @@ def command_output(command: list[str]) -> Optional[str]:
 
 
 def platform_report() -> Dict[str, Any]:
+    """收集复现实验所需的 Python、CUDA、GPU 和 TensorRT 环境信息。
+
+    Returns:
+        平台和工具版本信息字典。
+    """
     return {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
@@ -136,13 +234,27 @@ def platform_report() -> Dict[str, Any]:
 
 
 class MP1ObsEncoderPart(nn.Module):
-    """导出 obs_encoder 子图：多模态观测 -> global_cond。"""
+    """导出观测编码器子图：多模态观测 -> ``global_cond``。
+
+    Args:
+        policy: 已加载且包含 normalizer 的 MP1 策略。
+    """
 
     def __init__(self, policy: nn.Module):
         super().__init__()
         self.policy = policy
 
     def _normalize_field(self, value: torch.Tensor, key: str, forward: bool) -> torch.Tensor:
+        """按策略 normalizer 对一个观测字段做正向或反向变换。
+
+        Args:
+            value: 保持原始 batch/时间维度的输入张量。
+            key: normalizer 中对应字段名。
+            forward: 为 ``True`` 时执行正向归一化。
+
+        Returns:
+            恢复原始 shape 的变换后张量。
+        """
         params = self.policy.normalizer.params_dict[key]
         scale = params["scale"]
         offset = params["offset"]
@@ -162,6 +274,17 @@ class MP1ObsEncoderPart(nn.Module):
         point_cloud: torch.Tensor,
         agent_pos: torch.Tensor,
     ) -> torch.Tensor:
+        """将四类观测编码为全局条件特征。
+
+        Args:
+            global_image: 全局相机图像序列。
+            wrist_image: 腕部相机图像序列。
+            point_cloud: 点云观测序列。
+            agent_pos: 机器人状态序列。
+
+        Returns:
+            供 U-Net 条件输入使用的 ``global_cond``。
+        """
         nobs = {
             "global_image": self._normalize_field(global_image, "global_image", True),
             "wrist_image": self._normalize_field(wrist_image, "wrist_image", True),
@@ -178,7 +301,11 @@ class MP1ObsEncoderPart(nn.Module):
 
 
 class MP1UnetStepPart(nn.Module):
-    """导出单步动作生成子图：x_current,t,global_cond,r -> v_pred。"""
+    """导出单步动作生成子图：``x_current, t, global_cond, r -> v_pred``。
+
+    Args:
+        policy: 已加载的 MP1 策略。
+    """
 
     def __init__(self, policy: nn.Module):
         super().__init__()
@@ -191,6 +318,17 @@ class MP1UnetStepPart(nn.Module):
         global_cond: torch.Tensor,
         r: torch.Tensor,
     ) -> torch.Tensor:
+        """运行一次条件 U-Net 速度预测。
+
+        Args:
+            x_current: 当前归一化动作轨迹状态。
+            timestep: 当前 MeanFlow 时间步。
+            global_cond: 观测编码器输出的条件特征。
+            r: MeanFlow 的参考时间。
+
+        Returns:
+            对应当前状态的速度预测 ``v_pred``。
+        """
         model_output = self.policy.model(
             sample=x_current,
             timestep=timestep,
@@ -203,6 +341,15 @@ class MP1UnetStepPart(nn.Module):
 
 
 def unnormalize_action(policy: nn.Module, normalized_action: torch.Tensor) -> torch.Tensor:
+    """将归一化动作恢复到机器人动作表示。
+
+    Args:
+        policy: 含动作 normalizer 的策略。
+        normalized_action: 归一化动作轨迹。
+
+    Returns:
+        反归一化后的动作轨迹。
+    """
     params = policy.normalizer.params_dict["action"]
     scale = params["scale"]
     offset = params["offset"]
@@ -218,6 +365,15 @@ def run_reference_parts(
     policy: nn.Module,
     tensors: Mapping[str, torch.Tensor],
 ) -> Dict[str, torch.Tensor]:
+    """执行 PyTorch 参考子图和完整的外部采样循环。
+
+    Args:
+        policy: 处于 eval 模式的 MP1 策略。
+        tensors: 固定的多模态观测和初始噪声。
+
+    Returns:
+        包含 ``global_cond``、逐步 U-Net 记录、完整动作轨迹和可执行动作段的字典。
+    """
     obs_part = MP1ObsEncoderPart(policy).eval()
     unet_part = MP1UnetStepPart(policy).eval()
     global_cond = obs_part(
@@ -227,6 +383,7 @@ def run_reference_parts(
         tensors["agent_pos"],
     )
 
+    # 外部循环显式保存每一步状态，使 ONNX/TensorRT 可逐阶段定位误差。
     x_current = tensors["initial_noise"].to(dtype=policy.dtype)
     steps = int(policy.num_inference_steps if policy.num_inference_steps is not None else 10)
     dt = 1.0 / float(steps)
@@ -256,6 +413,15 @@ def run_reference_parts(
 
 
 def case_input_numpy(tensors: Mapping[str, torch.Tensor], image_as_float: bool = True) -> Dict[str, np.ndarray]:
+    """转换并整理 ONNX/TensorRT 对齐 case 的输入数组。
+
+    Args:
+        tensors: PyTorch 黄金输入张量。
+        image_as_float: 是否将图像转换为取值仍为 ``0..255`` 的 ``float32``。
+
+    Returns:
+        按 ONNX 输入名组织的 NumPy 数组。
+    """
     result: Dict[str, np.ndarray] = {}
     for name in INPUT_NAMES:
         array = tensor_to_numpy(tensors[name])
@@ -266,6 +432,16 @@ def case_input_numpy(tensors: Mapping[str, torch.Tensor], image_as_float: bool =
 
 
 def action_from_normalized_numpy(policy: nn.Module, normalized_action: np.ndarray, n_obs_steps: int) -> Tuple[np.ndarray, np.ndarray]:
+    """反归一化 NumPy 动作轨迹，并截取策略实际执行的动作段。
+
+    Args:
+        policy: 含动作 normalizer 和动作步数配置的策略。
+        normalized_action: U-Net 采样后的归一化动作轨迹。
+        n_obs_steps: 本次观测序列的时间步数。
+
+    Returns:
+        可执行动作段和完整反归一化动作预测。
+    """
     params = policy.normalizer.params_dict["action"]
     scale = tensor_to_numpy(params["scale"]).astype(np.float32)
     offset = tensor_to_numpy(params["offset"]).astype(np.float32)

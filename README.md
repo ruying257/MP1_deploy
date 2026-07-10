@@ -1,5 +1,9 @@
 # MP1 Jetson 真机部署项目
 
+**重点展示推理加速和部署加速内容，用表格形式**
+
+**部署流程讲清楚，先用ckpt导出pt测试，在导出onnx，tensorRT加速，这部分用流程图表示**
+
 <div align="center">
 <img src="./asserts/实验场景.png" width="600" />
 </div>
@@ -58,7 +62,8 @@ flowchart LR
 │   ├── tests/                    # 安全过滤器测试
 │   └── configs/                  # 机器人/相机示例配置
 ├── python_deploy/                # Python 策略和真机工具
-├── tools/                        # 导出、对齐和 TensorRT 辅助脚本
+├── tools/                        # Python 导出、对齐和验证脚本
+│   └── tensorrt/                 # ONNX/TensorRT 离线验证工具
 ├── README.md                     # 英文项目说明
 ├── README_zh.md                  # 中文项目说明
 └── requirements.txt              # Python 部署依赖
@@ -66,17 +71,17 @@ flowchart LR
 
 ## 核心组件
 
-| 组件 | 作用 |
-| --- | --- |
-| `mp1_offline_infer` | 加载 TorchScript 模型，用冻结样本和 Python 输出做离线对齐。 |
-| `mp1_dry_run` | 使用固定输入重复推理，不发送机器人控制命令。 |
-| `capture_real_inputs.py` | 将 RealSense 和 RTDE 观测采集成模型可消费的张量。 |
-| `mp1_real_input_dry_run` | 读取真实输入并打印过滤后的动作，不控制机器人。 |
-| `mp1_real_robot_control` | 在显式确认后执行低幅度、受保护的真机控制。 |
-| `mp1_realtime_robot_control` | 在单个 C++ 进程中完成采集、ring buffer、推理、安全过滤和控制。 |
-| `test_safety_filter` | 验证平移/旋转限幅和动作过滤逻辑。 |
-| `tools/check_onnx_parity.py` | 对比 PyTorch、ONNX Runtime 和 TorchScript 导出结果。 |
-| `tools/check_trt_case_parity.py` | 在不加载完整训练栈的情况下验证冻结的 TensorRT case。 |
+| 组件                               | 作用                                          |
+| -------------------------------- | ------------------------------------------- |
+| `mp1_offline_infer`              | 加载 TorchScript 模型，用冻结样本和 Python 输出做离线对齐。    |
+| `mp1_dry_run`                    | 使用固定输入重复推理，不发送机器人控制命令。                      |
+| `capture_real_inputs.py`         | 将 RealSense 和 RTDE 观测采集成模型可消费的张量。           |
+| `mp1_real_input_dry_run`         | 读取真实输入并打印过滤后的动作，不控制机器人。                     |
+| `mp1_real_robot_control`         | 在显式确认后执行低幅度、受保护的真机控制。                       |
+| `mp1_realtime_robot_control`     | 在单个 C++ 进程中完成采集、ring buffer、推理、安全过滤和控制。     |
+| `test_safety_filter`             | 验证平移/旋转限幅和动作过滤逻辑。                           |
+| `tools.tensorrt.check_onnx_parity`     | 对比 PyTorch、ONNX Runtime 和 TorchScript 导出结果。 |
+| `tools.tensorrt.check_trt_case_parity` | 在不加载完整训练栈的情况下验证冻结的 TensorRT case。           |
 
 ## 我的贡献
 

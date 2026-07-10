@@ -13,7 +13,7 @@ from typing import Any, Dict
 
 import torch
 
-from mp1_trt_utils import (
+from .mp1_trt_utils import (
     case_input_numpy,
     load_policy,
     load_sample_tensors,
@@ -28,6 +28,11 @@ from mp1_trt_utils import (
 
 
 def parse_args() -> argparse.Namespace:
+    """解析冻结 TensorRT 对齐 case 的命令行参数。
+
+    Returns:
+        包含 checkpoint、黄金样本目录、输出目录、设备和图像 dtype 的参数。
+    """
     parser = argparse.ArgumentParser(description="Dump a frozen MP1 TensorRT parity case.")
     parser.add_argument("--checkpoint", default="python_deploy/checkpoints/latest.ckpt")
     parser.add_argument("--tensor-dir", default="deploy_artifacts/sample_tensors")
@@ -39,25 +44,35 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """生成可移植的 ONNX/TensorRT 对齐 case 及元数据。
+
+    首先从 checkpoint 恢复 EMA 策略并加载黄金输入，再运行完整 PyTorch
+    参考采样过程。脚本保存编码器输出、每步 U-Net 输入/输出、最终动作和
+    归一化参数，供不依赖训练代码的轻量校验脚本复现。
+    """
     args = parse_args()
     device = torch.device(args.device)
     output_dir = resolve_repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # PyTorch 参考路径必须与 ONNX/TensorRT 路径使用相同 EMA 权重和输入。
     cfg, policy = load_policy(args.checkpoint, device=device)
     tensors = load_sample_tensors(args.tensor_dir, device=device)
     reference = run_reference_parts(policy, tensors)
 
+    # 以 ONNX 导出约定的 dtype 保存各子图的原始输入。
     inputs = case_input_numpy(tensors, image_as_float=bool(args.image_input_float))
     for name, value in inputs.items():
         save_numpy(output_dir / f"{name}.npy", value)
 
+    # 保存子图边界和最终动作，便于定位数值误差所在阶段。
     save_numpy(output_dir / "global_cond_ref.npy", reference["global_cond"])
     save_numpy(output_dir / "final_x_ref.npy", reference["final_x"])
     save_numpy(output_dir / "action_pred_ref.npy", reference["action_pred"])
     save_numpy(output_dir / "action_ref.npy", reference["action"])
     save_numpy(output_dir / "r.npy", reference["r"])
 
+    # U-Net 以单步子图导出，因此每一个采样步都需要独立的参考记录。
     step_meta = []
     for index, item in enumerate(reference["steps"]):
         save_numpy(output_dir / f"x_current_{index:03d}.npy", item["x_current"])
@@ -70,6 +85,7 @@ def main() -> None:
             "v_pred_ref": f"v_pred_ref_{index:03d}.npy",
         })
 
+    # 元数据包含动作反归一化参数，使轻量校验端无需加载训练 checkpoint。
     input_summary: Dict[str, Any] = {name: summarize_array(value) for name, value in inputs.items()}
     action_params = policy.normalizer.params_dict["action"]
     meta = {
