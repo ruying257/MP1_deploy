@@ -79,9 +79,11 @@ flowchart LR
 | `mp1_real_input_dry_run`         | 读取真实输入并打印过滤后的动作，不控制机器人。                     |
 | `mp1_real_robot_control`         | 在显式确认后执行低幅度、受保护的真机控制。                       |
 | `mp1_realtime_robot_control`     | 在单个 C++ 进程中完成采集、ring buffer、推理、安全过滤和控制。     |
+| `TrtPolicyRuntime`               | TensorRT 8.x C++ 后端，显式启用时执行 ONNX 子图和完整采样循环。 |
 | `test_safety_filter`             | 验证平移/旋转限幅和动作过滤逻辑。                           |
 | `tools.tensorrt.check_onnx_parity`     | 对比 PyTorch、ONNX Runtime 和 TorchScript 导出结果。 |
 | `tools.tensorrt.check_trt_case_parity` | 在不加载完整训练栈的情况下验证冻结的 TensorRT case。           |
+| `tools.tensorrt.run_trt_case`          | 使用 TensorRT Python API 生成离线 engine 对齐输出。            |
 
 ## 我的贡献
 
@@ -182,7 +184,7 @@ expected max_abs_diff: 3.57628e-07
 
 ## 已知限制
 
-- TensorRT 当前主要作为离线加速验证路径。
+- TensorRT 默认作为离线加速验证路径；C++ 后端需在 Jetson 对齐通过后显式启用。
 - 真机运行依赖本地 UR12e、RealSense 和 Jetson 环境。
 - checkpoint、TorchScript、ONNX、TensorRT engine、原始数据和部署日志不会进入 Git，需要通过 release 或外部 artifact 存储单独分发。
 

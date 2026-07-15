@@ -20,6 +20,12 @@ struct PolicyInputs {
     torch::Tensor initial_noise;   ///< 初始噪声 [B, N, 7]
 };
 
+struct TrtRuntimeOptions {
+    std::string obs_engine_path;
+    std::string unet_engine_path;
+    std::string metadata_path;
+};
+
 /**
  * @brief 策略运行时基类（抽象接口）
  * 
@@ -62,5 +68,11 @@ private:
     torch::jit::script::Module module_;  ///< TorchScript 模块
     torch::Device device_;               ///< 推理设备
 };
+
+std::unique_ptr<PolicyRuntime> create_policy_runtime(
+    const std::string& backend,
+    const std::string& model_path,
+    const torch::Device& device,
+    const TrtRuntimeOptions& trt_options = {});
 
 }  // namespace mp1_deploy

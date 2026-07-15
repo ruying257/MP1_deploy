@@ -154,9 +154,10 @@ int main(int argc, char** argv) {
         const auto args = parse_args(argc, argv);
         
         // 获取模型路径（必需）
+        const std::string backend = get_arg(args, "backend", "torchscript");
         const std::string model_path = get_arg(args, "model");
-        if (model_path.empty()) {
-            throw std::runtime_error("Usage: mp1_offline_infer --model policy_infer.pt [--tensor-dir sample_tensors]");
+        if (backend == "torchscript" && model_path.empty()) {
+            throw std::runtime_error("Usage: mp1_offline_infer --backend torchscript --model policy_infer.pt [--tensor-dir sample_tensors]");
         }
 
         // 获取设备和输入数据
@@ -166,8 +167,11 @@ int main(int argc, char** argv) {
         const mp1_deploy::PolicyInputs inputs = tensor_dir.empty() ? make_zero_inputs() : load_tensor_dir(tensor_dir);
 
         // 创建运行时并执行推理
-        mp1_deploy::TorchScriptRuntime runtime(model_path, device);
-        auto [action, action_pred] = runtime.infer(inputs);
+        const mp1_deploy::TrtRuntimeOptions trt_options{
+            get_arg(args, "obs-engine"), get_arg(args, "unet-engine"), get_arg(args, "trt-meta")};
+        auto runtime = mp1_deploy::create_policy_runtime(backend, model_path, device, trt_options);
+        auto [action, action_pred] = runtime->infer(inputs);
+        std::cout << "backend: " << backend << "\n";
         
         // 提取第一帧动作
         const torch::Tensor first_action = action.select(0, 0).select(0, 0).to(torch::kFloat32);
@@ -193,6 +197,12 @@ int main(int argc, char** argv) {
                 const torch::Tensor expected_first = expected.select(0, 0).select(0, 0);
                 const double max_abs_diff = torch::max(torch::abs(first_action - expected_first)).item<double>();
                 std::cout << "expected max_abs_diff: " << max_abs_diff << "\n";
+                if (action.sizes() != expected.sizes()) {
+                    throw std::runtime_error("expected_action shape does not match runtime action output");
+                }
+                const double full_max_abs_diff = torch::max(
+                    torch::abs(action.to(torch::kFloat32) - expected)).item<double>();
+                std::cout << "expected full_action max_abs_diff: " << full_max_abs_diff << "\n";
             }
         }
         

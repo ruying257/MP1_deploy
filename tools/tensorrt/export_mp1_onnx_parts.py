@@ -149,7 +149,24 @@ def main() -> None:
         "num_inference_steps": int(policy.num_inference_steps if policy.num_inference_steps is not None else 10),
         "platform": platform_report(),
     }
+    action_params = policy.normalizer.params_dict["action"]
+    trt_runtime_meta = {
+        "format_version": 1,
+        "image_input_dtype": meta["image_input_dtype"],
+        "n_obs_steps": int(cfg.n_obs_steps),
+        "horizon": int(policy.horizon),
+        "action_dim": int(policy.action_dim),
+        "n_action_steps": int(policy.n_action_steps),
+        "num_inference_steps": int(policy.num_inference_steps if policy.num_inference_steps is not None else 10),
+        "dt": 1.0 / float(policy.num_inference_steps if policy.num_inference_steps is not None else 10),
+        "action_normalizer": {
+            "scale": action_params["scale"].detach().cpu().to(torch.float32).tolist(),
+            "offset": action_params["offset"].detach().cpu().to(torch.float32).tolist(),
+        },
+    }
+    meta["trt_runtime_meta"] = str(output_dir / "trt_runtime_meta.json")
     write_json(output_dir / "onnx_export_meta.json", meta)
+    write_json(output_dir / "trt_runtime_meta.json", trt_runtime_meta)
     print(json.dumps(meta, ensure_ascii=False, indent=2))
 
 

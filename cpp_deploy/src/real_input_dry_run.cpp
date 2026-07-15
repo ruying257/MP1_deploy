@@ -297,7 +297,8 @@ mp1_deploy::SafetyFilterOptions make_safety_options(const std::unordered_map<std
  */
 void print_usage() {
     std::cout
-        << "Usage: mp1_real_input_dry_run --model policy_infer.pt --input-dir real_input_tensors [--device cpu]\n"
+        << "Usage: mp1_real_input_dry_run [--backend torchscript|tensorrt] [--model policy_infer.pt] --input-dir real_input_tensors [--device cpu]\n"
+        << "       TensorRT: --obs-engine obs_encoder_fp16.engine --unet-engine unet_step_fp16.engine --trt-meta trt_runtime_meta.json\n"
         << "       [--steps 0] [--warmup-steps 3] [--poll-ms 200] [--require-update 1]\n"
         << "       [--max-translation 0.002] [--max-rotation 0.01] [--ignore-gripper-action 1]\n";
 }
@@ -325,9 +326,10 @@ int main(int argc, char** argv) {
         const auto args = parse_args(argc, argv);
         
         // 2. 获取必需参数
+        const std::string backend = get_arg(args, "backend", "torchscript");
         const std::string model_path = get_arg(args, "model");
         const std::string input_dir_text = get_arg(args, "input-dir");
-        if (model_path.empty() || input_dir_text.empty()) {
+        if ((backend == "torchscript" && model_path.empty()) || input_dir_text.empty()) {
             print_usage();
             throw std::runtime_error("--model and --input-dir are required");
         }
@@ -357,7 +359,10 @@ int main(int argc, char** argv) {
         }
 
         // 5. 初始化运行时和安全过滤器
-        mp1_deploy::TorchScriptRuntime runtime(model_path, torch::Device(device_name));
+        const mp1_deploy::TrtRuntimeOptions trt_options{
+            get_arg(args, "obs-engine"), get_arg(args, "unet-engine"), get_arg(args, "trt-meta")};
+        auto runtime = mp1_deploy::create_policy_runtime(
+            backend, model_path, torch::Device(device_name), trt_options);
         mp1_deploy::SafetyFilter safety_filter(make_safety_options(args));
 
         // 6. 初始化循环变量
@@ -365,7 +370,7 @@ int main(int argc, char** argv) {
         int step = 0;                                  // 当前推理步数
         
         // 打印启动信息
-        std::cout << "real-input dry-run start: device=" << device_name
+        std::cout << "real-input dry-run start: backend=" << backend << ", device=" << device_name
                   << ", input_dir=" << input_dir.string()
                   << ", steps=" << steps
                   << ", warmup_steps=" << warmup_steps << "\n";
@@ -379,7 +384,7 @@ int main(int argc, char** argv) {
             std::cout << "warmup start: frame_dir=" << warmup_frame_dir.string() << "\n";
             for (int warmup = 0; warmup < warmup_steps; ++warmup) {
                 const auto begin = Clock::now();
-                auto [warmup_action, warmup_action_pred] = runtime.infer(warmup_inputs);
+                auto [warmup_action, warmup_action_pred] = runtime->infer(warmup_inputs);
                 (void)warmup_action;
                 (void)warmup_action_pred;
                 const auto end = Clock::now();
@@ -411,7 +416,7 @@ int main(int argc, char** argv) {
             
             // 执行推理
             const auto infer_begin = Clock::now();
-            auto [action, action_pred] = runtime.infer(inputs);
+            auto [action, action_pred] = runtime->infer(inputs);
             const auto infer_end = Clock::now();
 
             // 提取第一个动作并应用安全过滤

@@ -177,7 +177,8 @@ mp1_deploy::SafetyFilterOptions make_safety_options(const std::unordered_map<std
 /// 打印命令行使用说明
 void print_usage() {
     std::cout
-        << "Usage: mp1_dry_run --model policy_infer.pt [--tensor-dir sample_tensors] [--device cpu] [--steps 5]\n"
+        << "Usage: mp1_dry_run [--backend torchscript|tensorrt] [--model policy_infer.pt] [--tensor-dir sample_tensors] [--device cpu]\n"
+        << "       TensorRT: --obs-engine obs_encoder_fp16.engine --unet-engine unet_step_fp16.engine --trt-meta trt_runtime_meta.json\n"
         << "       [--warmup-steps 3] [--max-translation 0.002] [--max-rotation 0.01] [--ignore-gripper-action 1]\n";
 }
 
@@ -195,8 +196,9 @@ int main(int argc, char** argv) {
         const auto args = parse_args(argc, argv);
         
         // 获取必需参数：模型路径
+        const std::string backend = get_arg(args, "backend", "torchscript");
         const std::string model_path = get_arg(args, "model");
-        if (model_path.empty()) {
+        if (backend == "torchscript" && model_path.empty()) {
             print_usage();
             throw std::runtime_error("--model is required");
         }
@@ -224,7 +226,10 @@ int main(int argc, char** argv) {
 
         // 初始化运行时组件
         // dry-run 只做推理和限幅打印，绝不向 UR 或夹爪发送命令
-        mp1_deploy::TorchScriptRuntime runtime(model_path, torch::Device(device_name));
+        const mp1_deploy::TrtRuntimeOptions trt_options{
+            get_arg(args, "obs-engine"), get_arg(args, "unet-engine"), get_arg(args, "trt-meta")};
+        auto runtime = mp1_deploy::create_policy_runtime(
+            backend, model_path, torch::Device(device_name), trt_options);
         mp1_deploy::SafetyFilter safety_filter(make_safety_options(args));
 
         // CUDA 预热：只跑模型 forward，不打印动作，也不更新安全滤波器状态。
@@ -232,7 +237,7 @@ int main(int argc, char** argv) {
             std::cout << "warmup start: warmup_steps=" << warmup_steps << "\n";
             for (int warmup = 0; warmup < warmup_steps; ++warmup) {
                 const auto begin = Clock::now();
-                auto [warmup_action, warmup_action_pred] = runtime.infer(inputs);
+                auto [warmup_action, warmup_action_pred] = runtime->infer(inputs);
                 (void)warmup_action;
                 (void)warmup_action_pred;
                 const auto end = Clock::now();
@@ -245,7 +250,7 @@ int main(int argc, char** argv) {
         }
 
         // 执行干运行循环
-        std::cout << "dry-run start: device=" << device_name
+        std::cout << "dry-run start: backend=" << backend << ", device=" << device_name
                   << ", steps=" << steps
                   << ", warmup_steps=" << warmup_steps << "\n";
         for (int step = 0; step < steps; ++step) {
@@ -253,7 +258,7 @@ int main(int argc, char** argv) {
             const auto begin = Clock::now();
             
             // 执行策略推理
-            auto [action, action_pred] = runtime.infer(inputs);
+            auto [action, action_pred] = runtime->infer(inputs);
             
             // 记录推理结束时间
             const auto end = Clock::now();

@@ -39,6 +39,10 @@ struct WorkspaceBounds {
 
 struct ControlOptions {
     std::string model_path;
+    std::string backend = "torchscript";
+    std::string obs_engine_path;
+    std::string unet_engine_path;
+    std::string trt_metadata_path;
     std::filesystem::path input_dir;
     std::filesystem::path config_path;
     std::string device_name = "cuda";
@@ -305,6 +309,10 @@ ControlOptions parse_options(int argc, char** argv) {
     const auto args = parse_args(argc, argv);
     ControlOptions options;
     options.model_path = get_arg(args, "model");
+    options.backend = get_arg(args, "backend", "torchscript");
+    options.obs_engine_path = get_arg(args, "obs-engine");
+    options.unet_engine_path = get_arg(args, "unet-engine");
+    options.trt_metadata_path = get_arg(args, "trt-meta");
     options.input_dir = get_arg(args, "input-dir");
     options.config_path = get_arg(args, "config", "../cpp_deploy/configs/pole_pickoff_real_robot.json");
     options.device_name = get_arg(args, "device", "cuda");
@@ -321,8 +329,8 @@ ControlOptions parse_options(int argc, char** argv) {
     options.servo_lookahead = get_double(args, "servo-lookahead", options.servo_lookahead);
     options.servo_gain = get_double(args, "servo-gain", options.servo_gain);
 
-    if (options.model_path.empty() || options.input_dir.empty()) {
-        throw std::runtime_error("--model and --input-dir are required");
+    if ((options.backend == "torchscript" && options.model_path.empty()) || options.input_dir.empty()) {
+        throw std::runtime_error("--input-dir and --model (for torchscript) are required");
     }
     if (options.steps < 0 || options.warmup_steps < 0 || options.poll_ms < 0) {
         throw std::runtime_error("--steps, --warmup-steps and --poll-ms must be >= 0");
@@ -359,7 +367,8 @@ ControlOptions parse_options(int argc, char** argv) {
 
 void print_usage() {
     std::cout
-        << "Usage: mp1_real_robot_control --model policy_infer.pt --input-dir real_input_tensors\n"
+        << "Usage: mp1_real_robot_control [--backend torchscript|tensorrt] [--model policy_infer.pt] --input-dir real_input_tensors\n"
+        << "       TensorRT: --obs-engine obs_encoder_fp16.engine --unet-engine unet_step_fp16.engine --trt-meta trt_runtime_meta.json\n"
         << "       [--config pole_pickoff_real_robot.json] [--device cuda] [--steps 10]\n"
         << "       [--warmup-steps 3] [--control-hz 2] [--require-update 1]\n"
         << "       [--max-translation 0.0005] [--max-rotation 0.003]\n"
@@ -425,17 +434,28 @@ int main(int argc, char** argv) {
 #endif
         }
 
-        mp1_deploy::TorchScriptRuntime runtime(options.model_path, torch::Device(options.device_name));
+        const mp1_deploy::TrtRuntimeOptions trt_options{
+            options.obs_engine_path, options.unet_engine_path, options.trt_metadata_path};
+        auto runtime = mp1_deploy::create_policy_runtime(
+            options.backend, options.model_path, torch::Device(options.device_name), trt_options);
         mp1_deploy::SafetyFilter safety_filter(make_safety_options(options));
 
         std::cout << "real robot control start\n";
-        std::cout << "  execute=" << (options.execute ? "1" : "0")
+        std::cout << "  backend=" << options.backend
+                  << ", execute=" << (options.execute ? "1" : "0")
                   << ", device=" << options.device_name
                   << ", steps=" << options.steps
                   << ", control_hz=" << options.control_hz
                   << ", warmup_steps=" << options.warmup_steps << "\n";
         std::cout << "  max_translation=" << options.max_translation_m
                   << ", max_rotation=" << options.max_rotation_rad << "\n";
+#ifdef MP1_WITH_TENSORRT
+        if (options.backend == "tensorrt") {
+            std::cout << "  obs_engine_sha256=" << mp1_deploy::trt_file_sha256(options.obs_engine_path) << "\n";
+            std::cout << "  unet_engine_sha256=" << mp1_deploy::trt_file_sha256(options.unet_engine_path) << "\n";
+            std::cout << "  trt_meta_sha256=" << mp1_deploy::trt_file_sha256(options.trt_metadata_path) << "\n";
+        }
+#endif
         if (!options.execute) {
             std::cout << "  dry-run mode: no robot command will be sent.\n";
         }
@@ -447,7 +467,7 @@ int main(int argc, char** argv) {
             std::cout << "warmup start: frame_dir=" << warmup_frame_dir.string() << "\n";
             for (int i = 0; i < options.warmup_steps; ++i) {
                 const auto begin = Clock::now();
-                auto [action, action_pred] = runtime.infer(warmup_inputs);
+                auto [action, action_pred] = runtime->infer(warmup_inputs);
                 (void)action;
                 (void)action_pred;
                 const auto end = Clock::now();
@@ -481,7 +501,7 @@ int main(int argc, char** argv) {
             const mp1_deploy::PolicyInputs inputs = load_real_input_dir(frame_dir);
             validate_inputs(inputs);
             const auto infer_begin = Clock::now();
-            auto [action, action_pred] = runtime.infer(inputs);
+            auto [action, action_pred] = runtime->infer(inputs);
             const auto infer_end = Clock::now();
 
             const torch::Tensor first_action = action.select(0, 0).select(0, 0).to(torch::kFloat32);
@@ -491,6 +511,7 @@ int main(int argc, char** argv) {
             std::vector<double> current_tcp(6, 0.0);
             std::vector<double> target_tcp(6, 0.0);
             bool workspace_clamped = false;
+            bool command_sent = false;
 
 #ifdef MP1_WITH_UR_RTDE
             if (options.execute) {
@@ -504,6 +525,7 @@ int main(int argc, char** argv) {
                     1.0 / options.control_hz,
                     options.servo_lookahead,
                     options.servo_gain);
+                command_sent = true;
             }
 #endif
 
@@ -518,6 +540,7 @@ int main(int argc, char** argv) {
                       << ", inference_ms: " << infer_ms
                       << ", command_ms: " << command_ms << "\n";
             print_vec6("delta_tcp", delta_tcp);
+            std::cout << "  command_sent: " << (command_sent ? "1" : "0") << "\n";
             if (options.execute) {
                 print_vec6("current_tcp", current_tcp);
                 print_vec6("target_tcp", target_tcp);

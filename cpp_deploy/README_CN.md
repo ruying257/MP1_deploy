@@ -46,6 +46,7 @@ cmake --build build -j
 | `tools.tensorrt.export_mp1_onnx_parts` | 导出 `obs_encoder.onnx` 和 `unet_step.onnx` | 否      |
 | `tools.tensorrt.check_onnx_parity`     | 检查 ONNX Runtime 对齐并生成 TensorRT 证据报告      | 否      |
 | `tools.tensorrt.check_trt_case_parity` | 不加载训练代码，轻量检查已冻结 TensorRT case           | 否      |
+| `tools.tensorrt.run_trt_case`          | Python TensorRT engine runner，生成离线对齐输出      | 否      |
 
 ## 部署原则
 
@@ -96,6 +97,7 @@ tools/
     export_mp1_onnx_parts.py
     check_onnx_parity.py
     check_trt_case_parity.py
+    run_trt_case.py
     mp1_trt_utils.py
 ```
 
@@ -736,7 +738,7 @@ Jetson CPU dry-run 已观察到推理耗时大约是数百毫秒量级；CUDA wa
 
 ## 12. TensorRT 证据原型
 
-结论：TensorRT 当前只做离线证据原型，不直接接入 `mp1_real_robot_control`。真机闭环仍以 `policy_infer.pt` 的 TorchScript 路径为主路径。
+结论：项目提供可选的 TensorRT 8.x C++ 后端，但只有在 Jetson 完成黄金样本对齐与真实输入 dry-run 后，才允许用 `--backend tensorrt` 进入真机控制。默认真机路径仍是 TorchScript，TensorRT 不会自动回退或自动启用。
 
 从第一性原理看，TensorRT 加速要先证明三件事：
 
@@ -795,6 +797,32 @@ trtexec --onnx=deploy_artifacts/onnx/unet_step.onnx \
   --saveEngine=deploy_artifacts/trt_engines/unet_step_fp16.engine \
   --fp16 --warmUp=500 --duration=20
 ```
+
+### 12.1 C++ TensorRT 后端
+
+TensorRT 8.x C++ 后端默认关闭，保持没有 TensorRT 的机器仍可构建 TorchScript 路径。Jetson 上需要安装 TensorRT 开发包、CUDA Toolkit、`nlohmann-json3-dev` 和 `libssl-dev`：
+
+```bash
+cmake -S cpp_deploy -B build \
+  -DCMAKE_PREFIX_PATH=/path/to/libtorch \
+  -DMP1_ENABLE_TENSORRT=ON \
+  -DTENSORRT_ROOT=/usr
+cmake --build build -j
+```
+
+ONNX 导出会额外生成 `deploy_artifacts/onnx/trt_runtime_meta.json`。先用离线黄金样本验证 C++ TensorRT 后端：
+
+```bash
+./build/mp1_offline_infer \
+  --backend tensorrt \
+  --device cuda \
+  --tensor-dir deploy_artifacts/sample_tensors \
+  --obs-engine deploy_artifacts/trt_engines/obs_encoder_fp16.engine \
+  --unet-engine deploy_artifacts/trt_engines/unet_step_fp16.engine \
+  --trt-meta deploy_artifacts/onnx/trt_runtime_meta.json
+```
+
+`--backend tensorrt` 不会自动回退到 TorchScript。engine、metadata、binding 或执行错误都会终止程序；只有离线对齐和 dry-run 均通过后，才能把同一组 TensorRT 参数带入真实输入与真机控制程序。
 
 `deploy_artifacts/TRT_ACCEL_REPORT.md` 必须记录：
 
