@@ -138,7 +138,7 @@ ctest --test-dir build --output-on-failure
   --warmup-steps 5
 ```
 
-真实输入采集、TensorRT 构建和真机控制步骤见 [C++/Jetson 部署手册](./cpp_deploy/README_CN.md)。
+真实输入采集、TensorRT 构建和真机控制步骤见 [C++/Jetson 部署手册](./cpp_deploy/README.md)。
 
 ## 文档导航
 
