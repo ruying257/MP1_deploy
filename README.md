@@ -1,112 +1,106 @@
-# MP1 Jetson 真机部署项目
+# MP1 机器人策略：Jetson C++ 端侧部署与推理加速
 
-**重点展示推理加速和部署加速内容，用表格形式**
+本项目面向变电站带电拆接引流线场景，探索机械臂在非结构化环境中自动取等电位杆任务。项目基于训练完成的 MP1 多模态机器人策略，构建从 Python 模型到 Jetson AGX Orin C++ 推理、真实观测接入和受保护机器人执行的部署链路。
 
-**部署流程讲清楚，先用ckpt导出pt测试，在导出onnx，tensorRT加速，这部分用流程图表示**
+我负责训练前专家数据采集与多模态数据清洗，以及 Python 推理链路向 Jetson C++/LibTorch 的迁移；完成 TorchScript 导出与加载、黄金样本离线对齐、CUDA 推理优化、ONNX/TensorRT FP16 离线验证和真机执行前的安全验证。
 
-<div align="center">
-<img src="./asserts/实验场景.png" width="600" />
-</div>
-
-<div align="center">
-<img src="./asserts/取杆特写视频.gif" width="600" />
-</div>
-
-## 结论
-
-本项目面向 Jetson 的 MP1 机器人策略真机部署流程。项目将多模态观测处理、TorchScript/LibTorch 推理、Python 与 C++ 数值对齐、RealSense 输入采集、UR12e 控制、安全限幅以及 ONNX/TensorRT 验证工具串成了一条可测试的部署链路。
-
-这个项目的重点不是展示单个模型文件，而是展示如何把学习到的机器人策略可靠地放进真实硬件闭环中：先离线验证，再 dry-run，再接入真实输入，最后才允许受保护的真机执行。
-
-## 项目亮点
-
-- 基于 C++/LibTorch 在 Jetson 上部署学习到的多模态机器人操作策略。
-- 接入 RealSense RGB-D 相机和 UR RTDE 机器人状态/控制接口。
-- 设计分阶段验证流程：离线对齐、固定输入 dry-run、真实输入 dry-run、受保护真机执行。
-- 加入动作限幅、workspace 边界检查、显式执行确认和速度控制等安全机制。
-- 提供 ONNX/TensorRT 导出与误差验证工具，用于后续加速实验。
-
-## 系统架构
+## 端侧部署流程
 
 ```mermaid
 flowchart LR
-    A["RealSense RGB-D"] --> B["观测构建"]
-    C["UR12e 状态"] --> B
-    B --> D["TorchScript 策略"]
-    D --> E["安全过滤器"]
-    E --> F["UR RTDE speedL 控制"]
-    D --> G["ONNX / TensorRT 验证"]
+    A["Python 训练模型<br/>checkpoint"]
+
+    subgraph Main["TorchScript / C++ 真机主链路"]
+        B["冻结黄金样本"]
+        C["导出 TorchScript"]
+        D["Jetson C++ / LibTorch"]
+        E["Python / C++ 离线对齐"]
+        F["固定输入 dry-run"]
+        G["真实多模态输入 dry-run"]
+        H["安全过滤与显式确认"]
+        I["受保护真机执行"]
+
+        B --> E
+        C --> D --> E --> F --> G --> H --> I
+    end
+
+    subgraph Accel["TensorRT FP16 离线加速验证"]
+        J["拆分 ONNX 子图"]
+        K["构建 FP16 engine"]
+        L["冻结 case 延迟测试"]
+        M["输出误差对齐"]
+
+        J --> K --> L --> M
+    end
+
+    A --> B
+    A --> C
+    A --> J
 ```
 
-## 部署流程
+主链路按“先离线、再 dry-run、最后受保护执行”的顺序逐级验证。TensorRT 分支只消费冻结的 ONNX、engine 和测试 case，不连接机器人控制入口。
 
-```text
-离线数值对齐
--> 固定输入 dry-run
--> 真实输入采集
--> 真实输入 dry-run
--> 受保护真机执行
--> 单进程实时闭环
--> ONNX/TensorRT 验证
+## 推理加速结果
+
+<div align="center">
+<img src="./asserts/inference_benchmark.svg" width="100%" alt="MP1 Jetson 端侧推理性能对比" />
+</div>
+
+| 推理路径                                | 状态        | 样本数 | p50 (ms) | p95 (ms) | p99 (ms) | mean (ms) |           阶段加速 |
+| ----------------------------------- | --------- | --: | -------: | -------: | -------: | --------: | -------------: |
+| TorchScript CPU fixed-input         | Jetson 实测 | 200 |  331.012 |  409.941 |  422.202 |   331.678 |             基线 |
+| TorchScript CUDA fixed-input        | Jetson 实测 | 200 |   56.908 |   62.730 |   64.233 |    57.344 |  较 CPU `5.82x` |
+| TensorRT FP16 frozen case full-loop | 离线验证      | 200 |   14.686 |   19.255 |   21.261 |    15.260 | 较 CUDA `3.87x` |
+
+Benchmark 口径：
+
+- TorchScript 统计 `TorchScriptRuntime::infer()` 全段，包含输入搬运到运行设备、模型 forward 和输出回 CPU，不包含真实输入加载与 `SafetyFilter`。
+- TensorRT FP16 基于冻结 case，包含输入读取、Host/Device 拷贝、engine 执行、完整采样循环、输出回 CPU 和动作反归一化。
+
+完整实验环境、原始统计和局限说明见 [Jetson Benchmark 报告](./JETSON_BENCHMARK_REPORT.md)。图表可通过以下命令重新生成：
+
+```bash
+python tools/generate_inference_benchmark_chart.py
 ```
 
-每一步只验证一个层次的问题。shape 正确并不等于语义正确，图像通道顺序、旋转表示、点云坐标系和动作后处理都必须与训练时假设保持一致。
+## 核心工程实现
 
-## 目录结构
+| 模块            | 实现内容                                                                                     | 关键证据                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| C++ 端侧推理      | 使用 LibTorch 加载 TorchScript 策略，统一 CPU/CUDA device、输入搬运和动作输出                               | [`torchscript_runtime.cpp`](./cpp_deploy/src/torchscript_runtime.cpp)                                             |
+| 多模态输入链路       | 将双相机 RGB、点云、TCP 位姿和夹爪状态转换为模型输入张量；图像完成 resize 与 HWC→CHW，点云完成工作空间裁剪和固定点数下采样                | [`capture_real_inputs.py`](./cpp_deploy/tools/capture_real_inputs.py)                                             |
+| 部署一致性验证       | 冻结 Python 黄金样本，在 C++ 离线推理中校验输入 shape、dtype 和策略输出；已记录 `expected max_abs_diff=3.57628e-07` | [`offline_infer.cpp`](./cpp_deploy/src/offline_infer.cpp)                                                         |
+| 真实输入与 dry-run | 支持固定输入、已采集真实帧和实时观测的分阶段推理验证，不默认发送机器人命令                                                    | [`dry_run.cpp`](./cpp_deploy/src/dry_run.cpp)、[`real_input_dry_run.cpp`](./cpp_deploy/src/real_input_dry_run.cpp) |
+| 安全过滤          | 对模型动作执行平移/旋转限幅、workspace 检查和夹爪屏蔽，真机执行需要显式参数与确认字符串                                        | [`safety_filter.cpp`](./cpp_deploy/src/safety_filter.cpp)                                                         |
+| TensorRT 离线验证 | 将观测编码器和 U-Net step 拆分为 ONNX 子图，构建 FP16 engine，并验证完整采样循环的延迟与输出误差                          | [`tools/tensorrt`](./tools/tensorrt/)                                                                             |
 
-```text
-.
-├── cpp_deploy/                  # C++/Jetson 部署代码
-│   ├── include/mp1_deploy/       # 推理、安全和硬件接口
-│   ├── src/                      # 离线推理、dry-run、真机控制
-│   ├── tests/                    # 安全过滤器测试
-│   └── configs/                  # 机器人/相机示例配置
-├── python_deploy/                # Python 策略和真机工具
-├── tools/                        # Python 导出、对齐和验证脚本
-│   └── tensorrt/                 # ONNX/TensorRT 离线验证工具
-├── README.md                     # 英文项目说明
-├── README_zh.md                  # 中文项目说明
-└── requirements.txt              # Python 部署依赖
-```
+多模态输入契约如下：
 
-## 核心组件
+| 输入              | Shape / dtype               | 处理                          |
+| --------------- | --------------------------- | --------------------------- |
+| `global_image`  | `[1, 2, 3, 128, 128] uint8` | RGB resize、HWC→CHW、两帧堆叠     |
+| `wrist_image`   | `[1, 2, 3, 96, 96] uint8`   | RGB resize、HWC→CHW、两帧堆叠     |
+| `point_cloud`   | `[1, 2, 512, 3] float32`    | 工作空间裁剪、固定 512 点下采样          |
+| `agent_pos`     | `[1, 2, 10] float32`        | TCP xyz、rotvec→rot6d、夹爪状态拼接 |
+| `initial_noise` | `[1, 4, 7] float32`         | 冻结输入用于可复现对齐                 |
 
-| 组件                               | 作用                                          |
-| -------------------------------- | ------------------------------------------- |
-| `mp1_offline_infer`              | 加载 TorchScript 模型，用冻结样本和 Python 输出做离线对齐。    |
-| `mp1_dry_run`                    | 使用固定输入重复推理，不发送机器人控制命令。                      |
-| `capture_real_inputs.py`         | 将 RealSense 和 RTDE 观测采集成模型可消费的张量。           |
-| `mp1_real_input_dry_run`         | 读取真实输入并打印过滤后的动作，不控制机器人。                     |
-| `mp1_real_robot_control`         | 在显式确认后执行低幅度、受保护的真机控制。                       |
-| `mp1_realtime_robot_control`     | 在单个 C++ 进程中完成采集、ring buffer、推理、安全过滤和控制。     |
-| `TrtPolicyRuntime`               | TensorRT 8.x C++ 后端，显式启用时执行 ONNX 子图和完整采样循环。 |
-| `test_safety_filter`             | 验证平移/旋转限幅和动作过滤逻辑。                           |
-| `tools.tensorrt.check_onnx_parity`     | 对比 PyTorch、ONNX Runtime 和 TorchScript 导出结果。 |
-| `tools.tensorrt.check_trt_case_parity` | 在不加载完整训练栈的情况下验证冻结的 TensorRT case。           |
-| `tools.tensorrt.run_trt_case`          | 使用 TensorRT Python API 生成离线 engine 对齐输出。            |
+## 应用场景与演示
 
-## 我的贡献
+实验场景：
 
-- 搭建 C++/LibTorch 推理链路，将学习到的机器人策略部署到 Jetson。
-- 设计从离线对齐到真实输入 dry-run 的分阶段验证流程。
-- 实现安全过滤和显式执行确认，降低真机闭环调试风险。
-- 整理 ONNX/TensorRT 导出与误差验证工具，为边缘端加速提供证据。
-- 将配置、依赖和文档整理为更适合公开展示的 GitHub 仓库结构。
+<div align="center">
+<img src="./asserts/实验场景.png" width="680" alt="变电站带电作业机械臂实验场景" />
+</div>
 
-## 安全设计
+机械臂取杆过程：
 
-真机部署路径默认保守：
-
-- 默认不发送机器人命令。
-- 真机执行必须同时传入 `--execute 1` 和 `--confirm RUN_ROBOT`。
-- dry-run 程序只打印动作，不控制机器人。
-- 安全过滤器限制单步平移和旋转幅度。
-- workspace 超界时跳过命令，而不是强行把目标夹回边界。
-- UR 速度控制参数从部署配置中读取。
+<div align="center">
+<img src="./asserts/取杆特写视频.gif" width="680" alt="UR12e 机械臂取等电位杆演示" />
+</div>
 
 ## 快速开始
 
-安装 Python 部署依赖：
+安装 Python 工具依赖：
 
 ```bash
 pip install -r requirements.txt
@@ -117,13 +111,14 @@ pip install -r requirements.txt
 ```bash
 cmake -S cpp_deploy -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH=/path/to/libtorch
+  -DCMAKE_PREFIX_PATH=/path/to/libtorch \
+  -DMP1_ENABLE_UR_RTDE=OFF
 
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-运行离线对齐检查：
+运行离线对齐：
 
 ```bash
 ./build/mp1_offline_infer \
@@ -132,66 +127,32 @@ ctest --test-dir build --output-on-failure
   --device cpu
 ```
 
-在任何真机执行前，先运行受保护 dry-run：
+运行 CUDA fixed-input dry-run：
 
 ```bash
 ./build/mp1_dry_run \
   --model deploy_artifacts/policy_infer.pt \
   --tensor-dir deploy_artifacts/sample_tensors \
   --device cuda \
-  --steps 5 \
-  --warmup-steps 3
+  --steps 200 \
+  --warmup-steps 5
 ```
 
-## 配置说明
+真实输入采集、TensorRT 构建和真机控制步骤见 [C++/Jetson 部署手册](./cpp_deploy/README_CN.md)。
 
-公开配置文件中的硬件相关字段使用占位符：
+## 文档导航
 
-```json
-{
-  "robot": {
-    "ip": "ROBOT_IP_PLACEHOLDER"
-  },
-  "cameras": [
-    {
-      "serial": "GLOBAL_REALSENSE_SERIAL_PLACEHOLDER"
-    },
-    {
-      "serial": "WRIST_REALSENSE_SERIAL_PLACEHOLDER"
-    }
-  ]
-}
-```
+| 文档                                                  | 内容                                     |
+| --------------------------------------------------- | -------------------------------------- |
+| [C++/Jetson 部署手册](./cpp_deploy/README_CN.md)        | 构建、离线对齐、真实输入、dry-run、真机控制和 TensorRT 后端 |
+| [Jetson Benchmark 报告](./JETSON_BENCHMARK_REPORT.md) | 实验环境、延迟分位数、显存口径、安全过滤统计                 |
+| [部署工具说明](./tools/README.md)                         | 模型导出、Python 行为冻结和验证工具                  |
 
-真实硬件运行前，请在本地创建私有配置文件。不要提交本地 IP、相机序列号、checkpoint、导出模型、原始机器人数据或部署日志。
+## 安全边界与已知限制
 
-## 验证证据
+- 所有机器人入口默认不发送控制命令；真机执行必须同时传入 `--execute 1` 和 `--confirm RUN_ROBOT`。
+- 模型输出在进入机器人前经过平移/旋转限幅、workspace 检查。
+- TensorRT FP16 当前仅完成离线 frozen case 的延迟与误差验证，真机主链路仍使用 TorchScript/C++。
+- 真机运行依赖本地 UR12e、RealSense 和 Jetson 环境。公开配置使用占位符，不提交设备 IP、相机序列号、checkpoint、导出模型、原始数据或部署日志。
+- checkpoint、TorchScript、ONNX 和 TensorRT engine 需要通过 release 或外部 artifact 存储单独分发。
 
-该部署流程关注以下证据：
-
-- Python 与 C++ TorchScript 输出对齐。
-- 固定输入 dry-run 稳定性。
-- 真实输入张量的 shape、dtype 和时序。
-- 过滤后动作的方向和幅度。
-- workspace 与速度控制安全行为。
-- PyTorch、ONNX Runtime 和 TensorRT 的数值误差。
-
-一次已记录的 CPU 离线对齐结果为：
-
-```text
-expected max_abs_diff: 3.57628e-07
-```
-
-## 已知限制
-
-- TensorRT 默认作为离线加速验证路径；C++ 后端需在 Jetson 对齐通过后显式启用。
-- 真机运行依赖本地 UR12e、RealSense 和 Jetson 环境。
-- checkpoint、TorchScript、ONNX、TensorRT engine、原始数据和部署日志不会进入 Git，需要通过 release 或外部 artifact 存储单独分发。
-
-## 求职视角
-
-这个项目适合展示三类能力：
-
-- 机器人系统工程：真实硬件输入、推理、控制和安全边界。
-- 部署工程：Python 训练侧到 C++/Jetson 推理侧的行为对齐。
-- 工程可靠性：分阶段验证、显式确认、可复现配置和可审计文档。

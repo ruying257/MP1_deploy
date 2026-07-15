@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="560" viewBox="0 0 1100 560" role="img" aria-labelledby="title desc">
+<title id="title">MP1 Jetson 端侧推理性能</title>
+<desc id="desc">TorchScript CPU、TorchScript CUDA 与 TensorRT FP16 的 p50 延迟，以及两段实测加速比。</desc>
+<rect width="1100" height="560" fill="#F8FAFC"/>
+<text x="40" y="48" text-anchor="start" font-size="28" font-weight="700" fill="#111827">MP1 Jetson 端侧推理性能</text>
+<text x="40" y="78" text-anchor="start" font-size="15" font-weight="400" fill="#4B5563">Jetson Orin，5 次 warmup，200 次正式样本</text>
+<rect x="40" y="108" width="650" height="390" rx="8" fill="#FFFFFF" stroke="#D1D5DB"/>
+<text x="64" y="145" text-anchor="start" font-size="20" font-weight="700" fill="#111827">p50 延迟（越低越好）</text>
+<line x1="86" y1="420.00" x2="660" y2="420.00" stroke="#E5E7EB" stroke-width="1"/>
+<text x="74" y="425" text-anchor="end" font-size="13" font-weight="400" fill="#6B7280">0</text>
+<line x1="86" y1="350.86" x2="660" y2="350.86" stroke="#E5E7EB" stroke-width="1"/>
+<text x="74" y="355.857" text-anchor="end" font-size="13" font-weight="400" fill="#6B7280">100</text>
+<line x1="86" y1="281.71" x2="660" y2="281.71" stroke="#E5E7EB" stroke-width="1"/>
+<text x="74" y="286.714" text-anchor="end" font-size="13" font-weight="400" fill="#6B7280">200</text>
+<line x1="86" y1="212.57" x2="660" y2="212.57" stroke="#E5E7EB" stroke-width="1"/>
+<text x="74" y="217.571" text-anchor="end" font-size="13" font-weight="400" fill="#6B7280">300</text>
+<rect x="126.00" y="191.13" width="108" height="228.87" rx="4" fill="#64748B"/>
+<text x="180" y="179.129" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">331.012 ms</text>
+<text x="180" y="451" text-anchor="middle" font-size="14" font-weight="600" fill="#111827">TorchScript CPU</text>
+<rect x="320.00" y="380.65" width="108" height="39.35" rx="4" fill="#16A34A"/>
+<text x="374" y="368.652" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">56.908 ms</text>
+<text x="374" y="451" text-anchor="middle" font-size="14" font-weight="600" fill="#111827">TorchScript CUDA</text>
+<rect x="514.00" y="409.85" width="108" height="10.15" rx="4" fill="#EA580C"/>
+<text x="568" y="397.846" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">14.686 ms</text>
+<text x="568" y="451" text-anchor="middle" font-size="14" font-weight="600" fill="#111827">TensorRT FP16</text>
+<text x="568" y="472" text-anchor="middle" font-size="13" font-weight="400" fill="#9A3412">离线 full-loop</text>
+<rect x="716" y="108" width="344" height="390" rx="8" fill="#FFFFFF" stroke="#D1D5DB"/>
+<text x="740" y="145" text-anchor="start" font-size="20" font-weight="700" fill="#111827">阶段加速比（越高越好）</text>
+<text x="740" y="196" text-anchor="start" font-size="15" font-weight="600" fill="#111827">CPU → CUDA</text>
+<rect x="740" y="220" width="270" height="38" rx="4" fill="#F3F4F6"/>
+<rect x="740" y="220" width="261.90" height="38" rx="4" fill="#16A34A"/>
+<text x="991.9" y="246" text-anchor="end" font-size="17" font-weight="700" fill="#FFFFFF">5.82x</text>
+<text x="740" y="321" text-anchor="start" font-size="15" font-weight="600" fill="#111827">CUDA → TensorRT</text>
+<rect x="740" y="345" width="270" height="38" rx="4" fill="#F3F4F6"/>
+<rect x="740" y="345" width="174.15" height="38" rx="4" fill="#EA580C"/>
+<text x="904.15" y="371" text-anchor="end" font-size="17" font-weight="700" fill="#FFFFFF">3.87x</text>
+<text x="740" y="421" text-anchor="start" font-size="14" font-weight="400" fill="#4B5563">仅展示两段实测 p50 比值</text>
+<text x="740" y="445" text-anchor="start" font-size="14" font-weight="400" fill="#4B5563">不合并为端到端总加速</text>
+<text x="550" y="532" text-anchor="middle" font-size="14" font-weight="400" fill="#4B5563">TensorRT FP16 为冻结 case 离线验证，当前真机主链路仍使用 TorchScript / C++。</text>
+</svg>
