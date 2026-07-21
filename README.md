@@ -6,39 +6,23 @@
 
 ## 端侧部署流程
 
-```mermaid
-flowchart LR
-    A["Python 训练模型<br/>checkpoint"]
+### A. 当前真机主链路：TorchScript + C++/LibTorch
 
-    subgraph Main["TorchScript / C++ 真机主链路"]
-        B["冻结黄金样本"]
-        C["导出 TorchScript"]
-        D["Jetson C++ / LibTorch"]
-        E["Python / C++ 离线对齐"]
-        F["固定输入 dry-run"]
-        G["真实多模态输入 dry-run"]
-        H["安全过滤与显式确认"]
-        I["受保护真机执行"]
+1. **冻结行为基线**｜从 Python 训练模型生成黄金样本，固定多模态输入与期望动作，作为跨语言迁移基准。
+2. **导出 TorchScript**｜封装 normalizer、观测编码和完整策略采样过程，生成可由 LibTorch 加载的部署模型。
+3. **迁移 Jetson C++**｜在 Jetson AGX Orin 上复现输入构建、模型加载、CPU/CUDA 推理与动作输出链路。
+4. **离线数值对齐**｜逐项校验 shape、dtype 和策略输出；已记录 C++ 与期望动作 `max_abs_diff=3.57628e-07`。
+5. **分阶段 dry-run**｜依次验证固定输入和真实多模态输入，只检查原始动作与过滤后动作，不发送机器人命令。
+6. **受保护真机执行**｜策略输出通过平移/旋转限幅、workspace 检查和夹爪屏蔽后，仍需显式参数与确认字符串才能发送。
 
-        B --> E
-        C --> D --> E --> F --> G --> H --> I
-    end
+### B. TensorRT FP16 离线加速分支
 
-    subgraph Accel["TensorRT FP16 离线加速验证"]
-        J["拆分 ONNX 子图"]
-        K["构建 FP16 engine"]
-        L["冻结 case 延迟测试"]
-        M["输出误差对齐"]
+1. **拆分 ONNX 子图**｜将策略拆分为观测编码器和 U-Net step，分别导出 ONNX。
+2. **构建 FP16 engine**｜针对 Jetson 平台构建 TensorRT engine，并保留 TorchScript 作为主链路与回退路径。
+3. **冻结 case 性能验证**｜执行完整采样循环 200 次，p50 为 `14.686 ms`，较 TorchScript CUDA 提升 `3.87x`。
+4. **输出误差对齐**｜比较 PyTorch 与 TensorRT 的中间结果和最终动作，`final_action max_abs_diff=0.000688314`。
 
-        J --> K --> L --> M
-    end
-
-    A --> B
-    A --> C
-    A --> J
-```
-
-主链路按“先离线、再 dry-run、最后受保护执行”的顺序逐级验证。TensorRT 分支只消费冻结的 ONNX、engine 和测试 case，不连接机器人控制入口。
+> TensorRT 分支只消费冻结的 ONNX、engine 和测试 case，当前不连接机器人控制入口；真机主链路仍使用 TorchScript + C++/LibTorch。
 
 ## 推理加速结果
 
@@ -155,4 +139,3 @@ ctest --test-dir build --output-on-failure
 - TensorRT FP16 当前仅完成离线 frozen case 的延迟与误差验证，真机主链路仍使用 TorchScript/C++。
 - 真机运行依赖本地 UR12e、RealSense 和 Jetson 环境。公开配置使用占位符，不提交设备 IP、相机序列号、checkpoint、导出模型、原始数据或部署日志。
 - checkpoint、TorchScript、ONNX 和 TensorRT engine 需要通过 release 或外部 artifact 存储单独分发。
-
