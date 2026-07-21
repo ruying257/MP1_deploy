@@ -22,8 +22,6 @@
 3. **冻结 case 性能验证**｜执行完整采样循环 200 次，p50 为 `14.686 ms`，较 TorchScript CUDA 提升 `3.87x`。
 4. **输出误差对齐**｜比较 PyTorch 与 TensorRT 的中间结果和最终动作，`final_action max_abs_diff=0.000688314`。
 
-> TensorRT 分支只消费冻结的 ONNX、engine 和测试 case，当前不连接机器人控制入口；真机主链路仍使用 TorchScript + C++/LibTorch。
-
 ## 推理加速结果
 
 <div align="center">
@@ -139,3 +137,4 @@ ctest --test-dir build --output-on-failure
 - TensorRT FP16 当前仅完成离线 frozen case 的延迟与误差验证，真机主链路仍使用 TorchScript/C++。
 - 真机运行依赖本地 UR12e、RealSense 和 Jetson 环境。公开配置使用占位符，不提交设备 IP、相机序列号、checkpoint、导出模型、原始数据或部署日志。
 - checkpoint、TorchScript、ONNX 和 TensorRT engine 需要通过 release 或外部 artifact 存储单独分发。
+
