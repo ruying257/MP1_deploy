@@ -65,7 +65,7 @@ def _render_latency_panel() -> Sequence[str]:
     """渲染 p50 延迟柱状图。"""
     elements = [
         '<rect x="40" y="108" width="650" height="390" rx="8" fill="#FFFFFF" stroke="#D1D5DB"/>',
-        _text(64, 145, "p50 延迟（越低越好）", size=20, weight=700),
+        _text(64, 145, "p50 延迟", size=20, weight=700),
     ]
 
     chart_left = 86
@@ -104,7 +104,7 @@ def _render_speedup_panel() -> Sequence[str]:
     """渲染阶段加速比横向柱状图。"""
     elements = [
         '<rect x="716" y="108" width="344" height="390" rx="8" fill="#FFFFFF" stroke="#D1D5DB"/>',
-        _text(740, 145, "阶段加速比（越高越好）", size=20, weight=700),
+        _text(740, 145, "阶段加速比", size=20, weight=700),
     ]
 
     bar_left = 740
