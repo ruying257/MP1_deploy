@@ -15,7 +15,7 @@
 5. **分阶段 dry-run**｜依次验证固定输入和真实多模态输入，只检查原始动作与过滤后动作，不发送机器人命令。
 6. **受保护真机执行**｜策略输出通过平移/旋转限幅、workspace 检查和夹爪屏蔽后，仍需显式参数与确认字符串才能发送。
 
-### B. TensorRT FP16 离线加速分支
+### B. TensorRT FP16 离线加速
 
 1. **拆分 ONNX 子图**｜将策略拆分为观测编码器和 U-Net step，分别导出 ONNX。
 2. **构建 FP16 engine**｜针对 Jetson 平台构建 TensorRT engine，并保留 TorchScript 作为主链路与回退路径。
