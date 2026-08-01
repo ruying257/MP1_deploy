@@ -1,11 +1,61 @@
-/** 程序功能
- * 1. 加载模型
- * 2. 加载张量数据
- * 3. 执行推理
- * 4. 对比python版expected_action，验证C++ LibTorch 是否复现了 Python 的原始模型输出
+/**
+ * @file offline_infer.cpp
+ * @brief MP1 策略离线推理验证工具
+ *
+ * 本工具用于验证 C++ LibTorch 部署是否正确复现 Python 原版模型的输出。
+ * 通过加载 TorchScript 模型和参考张量数据，执行推理并与 Python 预期输出进行对比。
+ *
+ * 核心功能：
+ *   - 加载 TorchScript 格式的策略模型
+ *   - 支持零输入模式和真实张量输入模式
+ *   - 执行策略推理并应用安全滤波
+ *   - 计算与 Python 预期输出的最大绝对差异（max_abs_diff）
+ *   - 验证模型输出形状和数值精度
+ *
+ * 典型用例：
+ *   - 部署验证：确认 C++ 实现与 Python 原版模型输出一致
+ *   - 回归测试：确保模型更新后输出保持稳定
+ *   - 性能基准：测量不同设备上的推理耗时
+ *
+ * 验证标准：
+ *   - first_action 的 max_abs_diff = 3.57628e-07(极小) 证明链路基本对齐
+ *   - first_action 的 max_abs_diff 应小于 1e-6，证明链路基本对齐
+ *   - 完整 action 的 max_abs_diff 应小于 1e-5
+ *
+ * 使用示例：
+ *   @code
+ *   # 使用零输入快速测试
+ *   mp1_offline_infer --model policy_infer.pt --device cpu
+ *
+ *   # 使用真实张量验证对齐
+ *   mp1_offline_infer --model policy_infer.pt --tensor-dir sample_tensors --device cuda
+ *
+ *   # 应用安全滤波限制
+ *   mp1_offline_infer --model policy_infer.pt --tensor-dir sample_tensors \
+ *       --max-translation 0.1 --max-rotation 0.5
+ *   @endcode
+ *
+ * 命令行参数：
+ *   --model:         TorchScript 模型文件路径（必需）
+ *   --device:        推理设备，支持 cpu/cuda（默认 cpu）
+ *   --tensor-dir:    输入张量目录，包含 global_image.pt, wrist_image.pt 等
+ *   --max-translation: 安全滤波最大平移距离（米）
+ *   --max-rotation:  安全滤波最大旋转角度（弧度）
+ *
+ * 输入张量格式：
+ *   - global_image:  [B, T, C, H, W] = [1, 2, 3, 128, 128] UInt8
+ *   - wrist_image:   [B, T, C, H, W] = [1, 2, 3, 96, 96] UInt8
+ *   - point_cloud:   [B, T, N, 3] = [1, 2, 512, 3] Float32
+ *   - agent_pos:     [B, T, 10] = [1, 2, 10] Float32
+ *   - initial_noise: [B, N, 7] = [1, 4, 7] Float32
+ *   - expected_action: [B, T, D]（可选，用于验证对齐）
+ *
+ * 输出：
+ *   - action[0,0]: 第一帧动作输出
+ *   - clipped_action: 经过安全滤波后的动作
+ *   - action shape / action_pred shape: 输出张量形状
+ *   - expected max_abs_diff: 与预期输出的最大绝对差异
  */
- // first_action 的 max_abs_diff = 3.57628e-07(极小) 证明链路基本对齐
- // CPU 推理
 #include "mp1_deploy/policy_runtime.hpp"
 #include "mp1_deploy/safety_filter.hpp"
 
@@ -150,28 +200,20 @@ void print_tensor(const std::string& label, const torch::Tensor& tensor) {
  */
 int main(int argc, char** argv) {
     try {
-        // 解析命令行参数
         const auto args = parse_args(argc, argv);
         
-        // 获取模型路径（必需）
-        const std::string backend = get_arg(args, "backend", "torchscript");
         const std::string model_path = get_arg(args, "model");
-        if (backend == "torchscript" && model_path.empty()) {
-            throw std::runtime_error("Usage: mp1_offline_infer --backend torchscript --model policy_infer.pt [--tensor-dir sample_tensors]");
+        if (model_path.empty()) {
+            throw std::runtime_error("Usage: mp1_offline_infer --model policy_infer.pt [--tensor-dir sample_tensors]");
         }
 
-        // 获取设备和输入数据
         const std::string device_name = get_arg(args, "device", "cpu");
         const torch::Device device(device_name);
         const std::string tensor_dir = get_arg(args, "tensor-dir");
         const mp1_deploy::PolicyInputs inputs = tensor_dir.empty() ? make_zero_inputs() : load_tensor_dir(tensor_dir);
 
-        // 创建运行时并执行推理
-        const mp1_deploy::TrtRuntimeOptions trt_options{
-            get_arg(args, "obs-engine"), get_arg(args, "unet-engine"), get_arg(args, "trt-meta")};
-        auto runtime = mp1_deploy::create_policy_runtime(backend, model_path, device, trt_options);
+        auto runtime = std::make_unique<mp1_deploy::TorchScriptRuntime>(model_path, device);
         auto [action, action_pred] = runtime->infer(inputs);
-        std::cout << "backend: " << backend << "\n";
         
         // 提取第一帧动作
         const torch::Tensor first_action = action.select(0, 0).select(0, 0).to(torch::kFloat32);

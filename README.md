@@ -74,12 +74,6 @@ python tools/generate_inference_benchmark_chart.py
 <img src="./asserts/实验场景.png" width="680" alt="变电站带电作业机械臂实验场景" />
 </div>
 
-机械臂取杆过程：
-
-<div align="center">
-<img src="./asserts/取杆特写视频.gif" width="680" alt="UR12e 机械臂取等电位杆演示" />
-</div>
-
 ## 快速开始
 
 安装 Python 工具依赖：

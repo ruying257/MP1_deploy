@@ -1,4 +1,4 @@
-﻿# cpp\_deploy：MP1 Jetson C++ 使用说明
+# cpp\_deploy：MP1 Jetson C++ 使用说明
 
 ## 常用命令
 
@@ -33,20 +33,20 @@ cmake --build build -j
 
 当前已经包含这些工具：
 
-| 工具                               | 作用                                       | 是否发机器人 |
-| -------------------------------- | ---------------------------------------- | ------ |
-| `mp1_offline_infer`              | 加载 TorchScript，做黄金样本离线对齐                 | 否      |
-| `mp1_dry_run`                    | 用黄金样本或零输入重复推理，检查安全限幅                     | 否      |
-| `capture_real_inputs.py`         | 采集 RealSense/RTDE 状态并按完整帧写出真实输入张量        | 否      |
-| `mp1_real_input_dry_run`         | 循环读取最新完整帧，推理并打印限幅动作                      | 否      |
-| `mp1_real_robot_control`         | 读取真实输入并执行小限幅 TCP 闭环控制，默认 dry-run         | 默认否    |
-| `mp1_realtime_robot_control`     | 单进程 C++ 采集、ring buffer、推理和小限幅控制          | 默认否    |
-| `test_safety_filter`             | 测试平移/旋转限幅和夹爪动作屏蔽逻辑                       | 否      |
+| 工具                                     | 作用                                       | 是否发机器人 |
+| -------------------------------------- | ---------------------------------------- | ------ |
+| `offline_infer`                        | 加载 TorchScript，做黄金样本离线对齐                 | 否      |
+| `dry_run`                              | 用黄金样本或零输入重复推理，检查安全限幅                     | 否      |
+| `capture_real_inputs.py`               | 采集 RealSense/RTDE 状态并按完整帧写出真实输入张量        | 否      |
+| `real_input_dry_run`                   | 循环读取最新完整帧，推理并打印限幅动作                      | 否      |
+| `real_robot_control`                   | 读取真实输入并执行小限幅 TCP 闭环控制，默认 dry-run         | 默认否    |
+| `realtime_robot_control`               | 单进程 C++ 采集、ring buffer、推理和小限幅控制          | 默认否    |
+| `test_safety_filter`                   | 测试平移/旋转限幅和夹爪动作屏蔽逻辑                       | 否      |
 | `tools.tensorrt.dump_trt_case`         | 冻结 ONNX/TensorRT 对齐 case，输出中间张量          | 否      |
 | `tools.tensorrt.export_mp1_onnx_parts` | 导出 `obs_encoder.onnx` 和 `unet_step.onnx` | 否      |
 | `tools.tensorrt.check_onnx_parity`     | 检查 ONNX Runtime 对齐并生成 TensorRT 证据报告      | 否      |
-| `tools.tensorrt.check_trt_case_parity` | 不加载训练代码，轻量检查已冻结 TensorRT case           | 否      |
-| `tools.tensorrt.run_trt_case`          | Python TensorRT engine runner，生成离线对齐输出      | 否      |
+| `tools.tensorrt.check_trt_case_parity` | 不加载训练代码，轻量检查已冻结 TensorRT case            | 否      |
+| `tools.tensorrt.run_trt_case`          | Python TensorRT engine runner，生成离线对齐输出   | 否      |
 
 ## 部署原则
 
@@ -175,7 +175,7 @@ ctest --test-dir build --output-on-failure
 cmake --build build -j
 ```
 
-当前 CMake targets 包括下面这些。`mp1_realtime_robot_control` 只有在 `MP1_ENABLE_REALTIME_PIPELINE=ON` 且 RealSense/ur_rtde C++ 依赖可被 CMake 找到时才会生成。
+当前 CMake targets 包括下面这些。`mp1_realtime_robot_control` 只有在 `MP1_ENABLE_REALTIME_PIPELINE=ON` 且 RealSense/ur\_rtde C++ 依赖可被 CMake 找到时才会生成。
 
 ```text
 build/mp1_offline_infer
